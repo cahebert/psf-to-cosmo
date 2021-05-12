@@ -1,6 +1,7 @@
 """
 Module containing the AstrometryField class for analyzing astrometric residual fields.
 """
+import os
 import pickle
 import numpy as np
 import matplotlib.pyplot as plt
@@ -335,15 +336,68 @@ if __name__ == '__main__':
     ys = [ys0_train, ys1_train]
 
     #---------------------------------------------------------------------------
+
+    # Sanity check plot: 2-point correlation function for a given subsample
     
     fig, axs = plt.subplots(1, 2, figsize=(16, 6))
     af.plot_astrometric_residuals(axs[0], xs, ys)
     af.plot_2pcf(axs[1], xs, ys, bins=10)
 
+    plt.suptitle(f'{os.path.basename(args.data)}')
     plt.tight_layout()
     plt.show()
 
     #---------------------------------------------------------------------------
+
+    # Sanity check plot: Distribution of pair products of a given subsample
+
+    # Compute the separations between each point in the field
+    seps = af.compute_separations(xs)
+
+    # Define distance bins across the range of separation values
+    rs = np.histogram_bin_edges(seps, bins=10)
+    bins = np.array([rs[0:-1], rs[1:]]).T
+
+    # For each bin, select the astrometric-residual values of the points
+    # that lie within that distance bin
+    vals = [af.select_values(xs, ys, b) for b in bins]
+
+    fig, axs = plt.subplots(1, 2, figsize=(16, 6))
+
+    #axs[0].hist([np.outer(val[:,0], val[:,0])[~np.tri(len(val),k=-1,dtype=bool)] for val in vals], bins=50, histtype='step')
+    #axs[0].vlines([np.nanmean(np.outer(val[:,0], val[:,0])[~np.tri(len(val),k=-1,dtype=bool)]) for val in vals], ymin=0, ymax=1)
+    #axs[0].set_xlabel(r'${\rm res}_{x, i} \times {\rm res}_{x, j}$')
+    axs[0].axhline(y=0, c='gray', ls='--')
+    pps0 = [np.outer(val[:,0], val[:,0])[~np.tri(len(val),k=-1,dtype=bool)] for val in vals]
+    pps0 = [pp[np.isfinite(pp)] for pp in pps0]
+    axs[0].violinplot(pps0,
+                      showextrema=False,
+                      showmeans=True)
+    axs[0].set_xlabel(r'Distance bin')
+    axs[0].set_ylabel(r'${\rm res}_{x, i} \times {\rm res}_{x, j}$')
+    #axs[0].set_ylim(-0.0001, 0.0001)
+
+    #axs[1].hist([np.outer(val[:,1], val[:,1])[~np.tri(len(val),k=-1,dtype=bool)] for val in vals], bins=50, histtype='step')
+    #axs[1].vlines([np.nanmean(np.outer(val[:,1], val[:,1])[~np.tri(len(val),k=-1,dtype=bool)]) for val in vals], ymin=0, ymax=1)
+    #axs[1].set_xlabel(r'${\rm res}_{y, i} \times {\rm res}_{y, j}$')
+    axs[1].axhline(y=0, c='gray', ls='--')
+    pps1 = [np.outer(val[:,1], val[:,1])[~np.tri(len(val),k=-1,dtype=bool)] for val in vals]
+    pps1 = [pp[np.isfinite(pp)] for pp in pps0]
+    axs[1].violinplot(pps1,
+                      showextrema=False,
+                      showmeans=True)
+    axs[1].set_xlabel(r'Distance bin')
+    axs[1].set_ylabel(r'${\rm res}_{y, i} \times {\rm res}_{y, j}$')
+    #axs[1].set_ylim(-0.0001, 0.0001)
+
+    plt.suptitle(f'{os.path.basename(args.data)}')
+    plt.tight_layout()
+    plt.show()
+
+    #---------------------------------------------------------------------------
+
+    # Sanity check plot: Distribution of 2-point correlation function over
+    #                    many subsamples
 
     fig, axs = plt.subplots(1, 3, figsize=(24, 6))
     af.plot_astrometric_residuals(axs[0], [af.thx, af.thy], [af.res_x, af.res_y])
@@ -374,6 +428,7 @@ if __name__ == '__main__':
     axs[2].set_ylabel(r'$\xi(\Delta)$', fontsize=12)
     axs[2].set_title(r'$\xi_{yy}$')
 
+    plt.suptitle(f'{os.path.basename(args.data)}')
     plt.tight_layout()
     plt.show()
 
