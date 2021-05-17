@@ -39,11 +39,18 @@ class AstrometryField:
         """
         self.ddict = ddict
 
+        #PF COMMENTS:  out is not define within the class AstrometryField,
+        # I guess it might be a source of bug in the future. I know this is
+        # define in the main and python allowed that but I think this is dirty.
+        # I guess it needs to be define within the __init__.
         self.x = np.array(out['x'])
         self.y = np.array(out['y'])
         self.thx = np.array(out['thx'])
         self.thy = np.array(out['thy'])
 
+        #PF COMMENTS: I don't think to hard coded this kind of parameters,
+        # is a good practice. Imagine that Claire-Alice want to produce simulation
+        # for DES (pscale=0.26). I guess it should be define within the __init__. 
         self.pscale = 0.2 # LSST pixel scale in asec
         self.res_x, self.res_y = self.get_astrometric_residuals()
 
@@ -116,6 +123,19 @@ class AstrometryField:
              Testing subset of the y-component of the astrometric
              residual field
         """
+        #PF COMMENTS: I don't think there is anything wrong with what you
+        # wrote, but I guess there is way to write it in an "easier" way using
+        # sklearn.
+        # example:
+        #
+        # from sklearn.model_selection import train_test_split
+        # ind = np.arange(len(self.rex_x))
+        # self.ind_train, self.ind_test = train_test_split(ind,
+        #                                                   test_size=size,
+        #                                                   random_state=42)
+        # after you can apply self.ind_train/self.ind_test wherever in your code,
+        # it will avoid to multiply the numbers of variable you defined.
+        
         # Randomly select `size` unique indices for the x- and y-components
         rng = np.random.default_rng()
         x_i = rng.choice(list(range(len(self.thx))), size=size, replace=False)
@@ -142,10 +162,19 @@ class AstrometryField:
         pts = np.array([xs[0], xs[1]]).T
 
         # Compute the (euclidean) separation between each point and the field of points
+
+        # PF COMMENTS: this is where you should compute kappa * kappa and it should have
+        # the same format as seps. See comments on self.select_values
         seps = np.array([np.sqrt(np.square(pt[0]-pts[:,0])+np.square(pt[1]-pts[:,1])) for pt in pts])
 
         return seps
 
+    # PF COMMENTS: This is where the bug is.
+    # The output of this don't have the right format
+    # normaly you should compute (N*(N-1)) / 2 pairs (N is the number of points)
+    # the output is << (N*(N-1)) / 2.
+    # Normaly you should have an array of kappa * kappa which has the same shape
+    # as seps, and after you do a weighted histogram. See ipython notebook with example.
     def select_values(self, xs, ys, bins):
         """
         Select the values of the points whose separation lie within the bins.
@@ -166,6 +195,11 @@ class AstrometryField:
              List of vals whose separation lie within the bins; return nans if
              there are no such vals
         """
+        # PF COMMENTS: you compute multiple times
+        # seps. As this is the main contribution into
+        # the computation just do it once with something
+        # like that
+        # self.seps = self.compute_separations(xs) 
         seps = self.compute_separations(xs)
         vals = np.array([ys[0], ys[1]]).T
 
@@ -192,6 +226,8 @@ class AstrometryField:
         # Compute pair products for every point (2D)
         # Method adapted from https://stackoverflow.com/questions/62012339/efficiently-computing-all-pairwise-products-of-a-given-vectors-elements-in-nump
         # SM: is there a more elegant/efficient way to compute these pair products?
+        # PF COMMENTS, As I said in self.select_values and in compute_separations,
+        # the kappa * kappa should be donne in compute_separations with same format as seps.
         pcfs0 = np.nanmean(np.outer(vals[:,0], vals[:,0])[~np.tri(len(vals),k=-1,dtype=bool)])
         pcfs1 = np.nanmean(np.outer(vals[:,1], vals[:,1])[~np.tri(len(vals),k=-1,dtype=bool)])
         pcfs = np.array([pcfs0, pcfs1])
