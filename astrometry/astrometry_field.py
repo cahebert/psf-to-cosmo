@@ -148,95 +148,131 @@ class AstrometryField:
         return self.thx[x_i], self.thy[y_i], self.res_x[x_i], self.res_y[y_i], \
                self.thx[~x_i], self.thy[~y_i], self.res_x[~x_i], self.res_y[~y_i]
 
-    def compute_separations(self, xs):
+    #def compute_separations(self, xs):
+    #    """
+    #    Compute (euclidean) separations between each point in the field.
+
+    #    Parameters
+    #    ----------
+    #     xs: list,
+    #         List of the x- and y-components of the field (each an array)
+
+    #    Returns
+    #    -------
+    #     seps: ndarray,
+    #         Array of distances between each point
+    #    """
+    #    # SM: pts should probably be defined outside of the function...
+    #    pts = np.array([xs[0], xs[1]]).T
+
+    #    # Compute the (euclidean) separation between each point and the field of points
+
+    #    # PF COMMENTS: this is where you should compute kappa * kappa and it should have
+    #    # the same format as seps. See comments on self.select_values
+    #    seps = np.array([np.sqrt(np.square(pt[0]-pts[:,0])+np.square(pt[1]-pts[:,1])) for pt in pts])
+
+    #    return seps
+
+    ## PF COMMENTS: This is where the bug is.
+    ## The output of this don't have the right format
+    ## normaly you should compute (N*(N-1)) / 2 pairs (N is the number of points)
+    ## the output is << (N*(N-1)) / 2.
+    ## Normaly you should have an array of kappa * kappa which has the same shape
+    ## as seps, and after you do a weighted histogram. See ipython notebook with example.
+    #def select_values(self, xs, ys, bins):
+    #    """
+    #    Select the values of the points whose separation lie within the bins.
+
+    #    Parameters
+    #    ----------
+    #     xs: list,
+    #         List of the x- and y-components of the field (each an array)
+    #     ys: list,
+    #         List of the x- and y-components of the astrometric residual field
+    #         (each an array)
+    #     bins: list,
+    #         List of endpoints of the distance bin
+
+    #    Returns
+    #    -------
+    #     vals: list,
+    #         List of vals whose separation lie within the bins; return nans if
+    #         there are no such vals
+    #    """
+    #    # PF COMMENTS: you compute multiple times
+    #    # seps. As this is the main contribution into
+    #    # the computation just do it once with something
+    #    # like that
+    #    # self.seps = self.compute_separations(xs) 
+    #    seps = self.compute_separations(xs)
+    #    vals = np.array([ys[0], ys[1]]).T
+
+    #    return np.vstack([vals[((bins[0] <= sep) & (sep < bins[1]))]
+    #                      if np.sum((bins[0] <= sep) & (sep < bins[1])) > 0
+    #                      else np.array([np.nan, np.nan])
+    #                      for sep in seps])
+
+    #def compute_2pcf(self, vals):
+    #    """
+    #    Compute the 2-point correlation (covariance) function of a set of values.
+
+    #    Parameters
+    #    ----------
+    #     vals: list,
+    #         List of vals
+
+    #    Returns
+    #    -------
+    #     pcfs: ndarray,
+    #         2-point correlation functions for the x- and y-components of the
+    #         input values
+    #    """
+    #    # Compute pair products for every point (2D)
+    #    # Method adapted from https://stackoverflow.com/questions/62012339/efficiently-computing-all-pairwise-products-of-a-given-vectors-elements-in-nump
+    #    # SM: is there a more elegant/efficient way to compute these pair products?
+    #    # PF COMMENTS, As I said in self.select_values and in compute_separations,
+    #    # the kappa * kappa should be donne in compute_separations with same format as seps.
+    #    pcfs0 = np.nanmean(np.outer(vals[:,0], vals[:,0])[~np.tri(len(vals),k=-1,dtype=bool)])
+    #    pcfs1 = np.nanmean(np.outer(vals[:,1], vals[:,1])[~np.tri(len(vals),k=-1,dtype=bool)])
+    #    pcfs = np.array([pcfs0, pcfs1])
+    #    
+    #    return pcfs
+
+    def compute_2pcf(self, xs, ys, bins=10):
         """
-        Compute (euclidean) separations between each point in the field.
+        Compute the 2-point correlation function of each component of the
+        astrometric residual field.
 
         Parameters
         ----------
-         xs: list,
-             List of the x- and y-components of the field (each an array)
-
-        Returns
-        -------
-         seps: ndarray,
-             Array of distances between each point
-        """
-        # SM: pts should probably be defined outside of the function...
-        pts = np.array([xs[0], xs[1]]).T
-
-        # Compute the (euclidean) separation between each point and the field of points
-
-        # PF COMMENTS: this is where you should compute kappa * kappa and it should have
-        # the same format as seps. See comments on self.select_values
-        seps = np.array([np.sqrt(np.square(pt[0]-pts[:,0])+np.square(pt[1]-pts[:,1])) for pt in pts])
-
-        return seps
-
-    # PF COMMENTS: This is where the bug is.
-    # The output of this don't have the right format
-    # normaly you should compute (N*(N-1)) / 2 pairs (N is the number of points)
-    # the output is << (N*(N-1)) / 2.
-    # Normaly you should have an array of kappa * kappa which has the same shape
-    # as seps, and after you do a weighted histogram. See ipython notebook with example.
-    def select_values(self, xs, ys, bins):
-        """
-        Select the values of the points whose separation lie within the bins.
-
-        Parameters
-        ----------
-         xs: list,
-             List of the x- and y-components of the field (each an array)
-         ys: list,
+         xs: ndarray,
+             List of the x- and y-components of the field
+         ys: ndarray,
              List of the x- and y-components of the astrometric residual field
-             (each an array)
-         bins: list,
-             List of endpoints of the distance bin
 
         Returns
         -------
-         vals: list,
-             List of vals whose separation lie within the bins; return nans if
-             there are no such vals
+         xi0: ndarray,
+             2-point correlation function of the x-component of the astrometric
+             residual field
+         xi1: ndarray,
+             2-point correlation function of the y-component of the astrometric
+             residual field
+         dr: ndarray,
+             separations at which the 2-point correlation functions were calculated
         """
-        # PF COMMENTS: you compute multiple times
-        # seps. As this is the main contribution into
-        # the computation just do it once with something
-        # like that
-        # self.seps = self.compute_separations(xs) 
-        seps = self.compute_separations(xs)
-        vals = np.array([ys[0], ys[1]]).T
+        seps = np.array([np.sqrt(np.square(x[0]-xs[:,0])+np.square(x[1]-xs[:,1])) for x in xs])
+        pps = np.array([y*ys for y in ys])
 
-        return np.vstack([vals[((bins[0] <= sep) & (sep < bins[1]))]
-                          if np.sum((bins[0] <= sep) & (sep < bins[1])) > 0
-                          else np.array([np.nan, np.nan])
-                          for sep in seps])
+        counts, dr = np.histogram(seps, bins=bins)
+        xi0, _ = np.histogram(seps, bins=bins, weights=pps[:,:,0])
+        xi1, _ = np.histogram(seps, bins=bins, weights=pps[:,:,1])
 
-    def compute_2pcf(self, vals):
-        """
-        Compute the 2-point correlation (covariance) function of a set of values.
+        dr = 0.5*(dr[:-1]+dr[1:])
+        xi0 /= counts
+        xi1 /= counts
 
-        Parameters
-        ----------
-         vals: list,
-             List of vals
-
-        Returns
-        -------
-         pcfs: ndarray,
-             2-point correlation functions for the x- and y-components of the
-             input values
-        """
-        # Compute pair products for every point (2D)
-        # Method adapted from https://stackoverflow.com/questions/62012339/efficiently-computing-all-pairwise-products-of-a-given-vectors-elements-in-nump
-        # SM: is there a more elegant/efficient way to compute these pair products?
-        # PF COMMENTS, As I said in self.select_values and in compute_separations,
-        # the kappa * kappa should be donne in compute_separations with same format as seps.
-        pcfs0 = np.nanmean(np.outer(vals[:,0], vals[:,0])[~np.tri(len(vals),k=-1,dtype=bool)])
-        pcfs1 = np.nanmean(np.outer(vals[:,1], vals[:,1])[~np.tri(len(vals),k=-1,dtype=bool)])
-        pcfs = np.array([pcfs0, pcfs1])
-        
-        return pcfs
+        return xi0, xi1, dr
 
     def plot_2pcf(self, ax, xs, ys, nbins=10):
         """
@@ -404,13 +440,23 @@ if __name__ == '__main__':
     #---------------------------------------------------------------------------
     
     af = AstrometryField(out)
-    
-    xs0_train, xs1_train, ys0_train, ys1_train, xs0_test, xs1_test, ys0_test, ys1_test = af.get_train_test(size=args.size)
 
-    xs = [af.thx, af.thy]
-    ys = [af.res_x, af.res_y]
-    #xs = [xs0_train, xs1_train]
-    #ys = [ys0_train, ys1_train]
+    xs = np.array([af.thx, af.thy]).T
+    ys = np.array([af.res_x, af.res_y]).T
+
+    import pdb;pdb.set_trace()
+    #xi0, xi1, dr = af.compute_2pcf(xs, ys, bins=10)
+    seps = np.array([np.sqrt(np.square(x[0]-xs[:,0])+np.square(x[1]-xs[:,1])) for x in xs])
+    pps = np.array([y*ys for y in ys])
+
+    counts, dr = np.histogram(seps, bins=bins)
+    xi0, _ = np.histogram(seps, bins=bins, weights=pps[:,:,0])
+    xi1, _ = np.histogram(seps, bins=bins, weights=pps[:,:,1])
+
+    dr = 0.5*(dr[:-1]+dr[1:])
+    xi0 /= counts
+    xi1 /= counts
+
 
     #---------------------------------------------------------------------------
 
