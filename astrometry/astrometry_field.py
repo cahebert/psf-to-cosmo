@@ -171,16 +171,17 @@ class AstrometryField:
         # calculate the euclidean separation between each point in the field
         seps = np.asarray([np.sqrt(np.square(x[0]-xs[:,0])+np.square(x[1]-xs[:,1])) for x in xs])
 
-        # pps has shape (N, N, 2)
-        # calculate the pair product of each component of each point of the
+        # pps0, pps1 have shape (N, N)
+        # calculate the pair products of each component of each point of the
         # astrometric residuals
-        pps = np.asarray([y*ys for y in ys])
+        pps0 = np.outer(ys[:,0], ys[:,0])
+        pps1 = np.outer(ys[:,1], ys[:,1])
 
         # Use histograms to efficiently select pps according to sep
         # Inspired by Gary Bernstein via Pierre-Francois Leget
         counts, dr = np.histogram(seps, bins=bins)
-        xi0, _ = np.histogram(seps, bins=bins, weights=pps[:,:,0])
-        xi1, _ = np.histogram(seps, bins=bins, weights=pps[:,:,1])
+        xi0, _ = np.histogram(seps, bins=bins, weights=pps0)
+        xi1, _ = np.histogram(seps, bins=bins, weights=pps1)
 
         dr = 0.5*(dr[:-1]+dr[1:])
         xi0 /= counts
@@ -336,6 +337,9 @@ if __name__ == '__main__':
     #---------------------------------------------------------------------------
     
     af = AstrometryField(args.infile)
+    import pdb;pdb.set_trace()
+    seps = np.asarray([np.sqrt(np.square(x[0]-xs[:,0])+np.square(x[1]-xs[:,1])) for x in xs])
+    pps = np.asarray([y*ys for y in ys])
 
     #---------------------------------------------------------------------------
 
