@@ -4,7 +4,10 @@ Module containing the AstrometryField class for analyzing astrometric residual f
 import os
 import pickle
 import numpy as np
+from sklearn.model_selection import train_test_split
 import matplotlib.pyplot as plt
+import seaborn
+seaborn.set_palette('bright')
 
 import treecorr
 
@@ -24,7 +27,7 @@ import treecorr
 #-------------------------------------------------------------------------------
 
 class AstrometryField:
-    def __init__(self, ddict, pscale=0.2):
+    def __init__(self, infile, pscale=0.2, bins=10):
         """
         Initialize AstrometryField class.
 
@@ -34,29 +37,46 @@ class AstrometryField:
              Dictionary output from psfws
          pscale: float, 0.2,
              Pixel scale in asec (0.2 for LSST)
+         bins: int, optional
+             The number of distance bins at which to compute the 2-point
+             correlation functions
 
         Returns
         -------
          None
         """
-        self.ddict = ddict
+        self.ddict = self.load_data(infile)
 
-        #PF COMMENTS:  out is not define within the class AstrometryField,
-        # I guess it might be a source of bug in the future. I know this is
-        # define in the main and python allowed that but I think this is dirty.
-        # I guess it needs to be define within the __init__.
-        #SM: thanks for the catch---this was supposed to be ddict.
-        self.x = np.array(ddict['x'])
-        self.y = np.array(ddict['y'])
-        self.thx = np.array(ddict['thx'])
-        self.thy = np.array(ddict['thy'])
+        self.x = np.array(self.ddict['x'])
+        self.y = np.array(self.ddict['y'])
+        self.thx = np.array(self.ddict['thx'])
+        self.thy = np.array(self.ddict['thy'])
 
-        #PF COMMENTS: I don't think to hard coded this kind of parameters,
-        # is a good practice. Imagine that Claire-Alice want to produce simulation
-        # for DES (pscale=0.26). I guess it should be define within the __init__. 
-        #SM: good point, changed.
         self.pscale = pscale
         self.res_x, self.res_y = self.get_astrometric_residuals()
+
+        self.xs = np.array([self.thx, self.thy]).T
+        self.ys = np.array([self.res_x, self.res_y]).T
+
+        self.bins = bins
+        self.dr, self.xi0, self.xi1 = self.compute_2pcf(self.xs, self.ys, bins=self.bins)
+
+    def load_data(self, infile):
+        """
+        Load astrometric field data from file
+
+        Parameters
+        ----------
+         infile: str,
+             Input file to analyze
+
+        Returns
+        -------
+         ddict: dict,
+             Dictionary of astrometric field data
+        """
+        ddict = pickle.load(open(infile, 'rb'))
+        return ddict
 
     def get_astrometric_residuals(self):
         """
@@ -85,13 +105,13 @@ class AstrometryField:
         # units of arcseconds.
 
         # astrometric residuals:
-        res_x = np.array([(x-25) * self.pscale for x in self.x])
-        res_y = np.array([(y-25) * self.pscale for y in self.y])
+        res_x = [(x-25) * self.pscale for x in self.x]
+        res_y = [(y-25) * self.pscale for y in self.y]
 
         # subtract 1st order polynomial, ie mean:
         # according the PF this should be a third order polynomial! to-do.
-        res_x = np.array([x-np.mean(res_x) for x in res_x])
-        res_y = np.array([y-np.mean(res_y) for y in res_y])
+        res_x = np.asarray([x-np.mean(res_x) for x in res_x])
+        res_y = np.asarray([y-np.mean(res_y) for y in res_y])
 
         return res_x, res_y
 
@@ -106,137 +126,20 @@ class AstrometryField:
 
         Returns
         -------
-         thx_train: ndarray,
-             Training subset of the x-component of the field
-         thy_train: ndarray,
-             training subset of the y-component of the field
-         res_x_train: ndarray,
-             Training subset of the x-component of the astrometric
-             residual field
-         res_y_train: ndarray,
-             Training subset of the y-component of the astrometric
-             residual field
-         thx_test: ndarray,
-             Testing subset of the x-component of the field
-         thy_test: ndarray,
-             Testing subset of the y-component of the field
-         res_x_test: ndarray,
-             Testing subset of the x-component of the astrometric
-             residual field
-         res_y_test: ndarray,
-             Testing subset of the y-component of the astrometric
-             residual field
+         xs_train: ndarray,
+             Training subset of the field components
+         xs_test: ndarray,
+             Testing subset of the field components
+         ys_train: ndarray,
+             Training subset of the astrometric residual components
+         ys_test: ndarray,
+             Testing subset of the astrometric residual components
         """
-        #PF COMMENTS: I don't think there is anything wrong with what you
-        # wrote, but I guess there is way to write it in an "easier" way using
-        # sklearn.
-        # example:
-        #
-        # from sklearn.model_selection import train_test_split
-        # ind = np.arange(len(self.rex_x))
-        # self.ind_train, self.ind_test = train_test_split(ind,
-        #                                                   test_size=size,
-        #                                                   random_state=42)
-        # after you can apply self.ind_train/self.ind_test wherever in your code,
-        # it will avoid to multiply the numbers of variable you defined.
-        
-        # Randomly select `size` unique indices for the x- and y-components
-        rng = np.random.default_rng()
-        x_i = rng.choice(list(range(len(self.thx))), size=size, replace=False)
-        y_i = rng.choice(list(range(len(self.thy))), size=size, replace=False)
+        xs_train, xs_test, ys_train, ys_test = train_test_split(self.xs, self.ys,
+                                                                test_size=size,
+                                                                random_state=42)
 
-        return self.thx[x_i], self.thy[y_i], self.res_x[x_i], self.res_y[y_i], \
-               self.thx[~x_i], self.thy[~y_i], self.res_x[~x_i], self.res_y[~y_i]
-
-    #def compute_separations(self, xs):
-    #    """
-    #    Compute (euclidean) separations between each point in the field.
-
-    #    Parameters
-    #    ----------
-    #     xs: list,
-    #         List of the x- and y-components of the field (each an array)
-
-    #    Returns
-    #    -------
-    #     seps: ndarray,
-    #         Array of distances between each point
-    #    """
-    #    # SM: pts should probably be defined outside of the function...
-    #    pts = np.array([xs[0], xs[1]]).T
-
-    #    # Compute the (euclidean) separation between each point and the field of points
-
-    #    # PF COMMENTS: this is where you should compute kappa * kappa and it should have
-    #    # the same format as seps. See comments on self.select_values
-    #    seps = np.array([np.sqrt(np.square(pt[0]-pts[:,0])+np.square(pt[1]-pts[:,1])) for pt in pts])
-
-    #    return seps
-
-    ## PF COMMENTS: This is where the bug is.
-    ## The output of this don't have the right format
-    ## normaly you should compute (N*(N-1)) / 2 pairs (N is the number of points)
-    ## the output is << (N*(N-1)) / 2.
-    ## Normaly you should have an array of kappa * kappa which has the same shape
-    ## as seps, and after you do a weighted histogram. See ipython notebook with example.
-    #def select_values(self, xs, ys, bins):
-    #    """
-    #    Select the values of the points whose separation lie within the bins.
-
-    #    Parameters
-    #    ----------
-    #     xs: list,
-    #         List of the x- and y-components of the field (each an array)
-    #     ys: list,
-    #         List of the x- and y-components of the astrometric residual field
-    #         (each an array)
-    #     bins: list,
-    #         List of endpoints of the distance bin
-
-    #    Returns
-    #    -------
-    #     vals: list,
-    #         List of vals whose separation lie within the bins; return nans if
-    #         there are no such vals
-    #    """
-    #    # PF COMMENTS: you compute multiple times
-    #    # seps. As this is the main contribution into
-    #    # the computation just do it once with something
-    #    # like that
-    #    # self.seps = self.compute_separations(xs) 
-    #    seps = self.compute_separations(xs)
-    #    vals = np.array([ys[0], ys[1]]).T
-
-    #    return np.vstack([vals[((bins[0] <= sep) & (sep < bins[1]))]
-    #                      if np.sum((bins[0] <= sep) & (sep < bins[1])) > 0
-    #                      else np.array([np.nan, np.nan])
-    #                      for sep in seps])
-
-    #def compute_2pcf(self, vals):
-    #    """
-    #    Compute the 2-point correlation (covariance) function of a set of values.
-
-    #    Parameters
-    #    ----------
-    #     vals: list,
-    #         List of vals
-
-    #    Returns
-    #    -------
-    #     pcfs: ndarray,
-    #         2-point correlation functions for the x- and y-components of the
-    #         input values
-    #    """
-    #    # Compute pair products for every point (2D)
-    #    # Method adapted from https://stackoverflow.com/questions/62012339/efficiently-computing-all-pairwise-products-of-a-given-vectors-elements-in-nump
-    #    # SM: is there a more elegant/efficient way to compute these pair products?
-    #    # PF COMMENTS, As I said in self.select_values and in compute_separations,
-    #    # the kappa * kappa should be donne in compute_separations with same format as seps.
-    #    pcfs0 = np.nanmean(np.outer(vals[:,0], vals[:,0])[~np.tri(len(vals),k=-1,dtype=bool)])
-    #    pcfs1 = np.nanmean(np.outer(vals[:,1], vals[:,1])[~np.tri(len(vals),k=-1,dtype=bool)])
-    #    pcfs = np.array([pcfs0, pcfs1])
-    #    
-    #    return pcfs
+        return xs_train, xs_test, ys_train, ys_test
 
     def compute_2pcf(self, xs, ys, bins=10):
         """
@@ -249,21 +152,32 @@ class AstrometryField:
              List of the x- and y-components of the field
          ys: ndarray,
              List of the x- and y-components of the astrometric residual field
+         bins: int, optional
+             The number of distance bins at which to compute the 2-point
+             correlation functions
 
         Returns
         -------
+         dr: ndarray,
+             separations at which the 2-point correlation functions were calculated
          xi0: ndarray,
              2-point correlation function of the x-component of the astrometric
              residual field
          xi1: ndarray,
              2-point correlation function of the y-component of the astrometric
              residual field
-         dr: ndarray,
-             separations at which the 2-point correlation functions were calculated
         """
-        seps = np.array([np.sqrt(np.square(x[0]-xs[:,0])+np.square(x[1]-xs[:,1])) for x in xs])
-        pps = np.array([y*ys for y in ys])
+        # seps has shape (N, N)
+        # calculate the euclidean separation between each point in the field
+        seps = np.asarray([np.sqrt(np.square(x[0]-xs[:,0])+np.square(x[1]-xs[:,1])) for x in xs])
 
+        # pps has shape (N, N, 2)
+        # calculate the pair product of each component of each point of the
+        # astrometric residuals
+        pps = np.asarray([y*ys for y in ys])
+
+        # Use histograms to efficiently select pps according to sep
+        # Inspired by Gary Bernstein via Pierre-Francois Leget
         counts, dr = np.histogram(seps, bins=bins)
         xi0, _ = np.histogram(seps, bins=bins, weights=pps[:,:,0])
         xi1, _ = np.histogram(seps, bins=bins, weights=pps[:,:,1])
@@ -272,9 +186,9 @@ class AstrometryField:
         xi0 /= counts
         xi1 /= counts
 
-        return xi0, xi1, dr
+        return dr, xi0, xi1
 
-    def plot_2pcf(self, ax, xs, ys, nbins=10):
+    def plot_2pcf(self, ax, dr, xi0, xi1):
         """
         Plot the two-point correlation function for the x- and y-components of
         the astrometric residual field as a function of distance between points.
@@ -283,39 +197,26 @@ class AstrometryField:
         ----------
          ax: axis,
              Matplotlib axis in which to plot
-         xs: list,
-             List of the x- and y-components of the field (each an array)
-         ys: list,
-             List of the x- and y-components of the astrometric residual field
-             (each an array)
-         nbins: int, optional
-             The number of distance bins at which to compute the 2-point
-             correlation functions.
+         dr: ndarray,
+             separations at which the 2-point correlation functions were calculated
+         xi0: ndarray,
+             2-point correlation function of the x-component of the astrometric
+             residual field
+         xi1: ndarray,
+             2-point correlation function of the y-component of the astrometric
+             residual field
 
         Returns
         -------
          None
         """
-        # Compute the separations between each point in the field
-        seps = self.compute_separations(xs)
-
-        # Define distance bins across the range of separation values
-        rs = np.histogram_bin_edges(seps, bins=nbins)
-        bins = np.array([rs[0:-1], rs[1:]]).T
-
-        # For each bin, select the astrometric-residual values of the points
-        # that lie within that distance bin
-        vals = [self.select_values(xs, ys, b) for b in bins]
-
-        # Compute the 2-point correlation function for each bin
-        pcfs = np.array([self.compute_2pcf(val) for val in vals])
-
         # Plot the two-point correlation functions as a function of distance
-        ax.scatter(0.5*(bins[:,0]+bins[:,1]), pcfs[:,0], label=r'$\xi_{xx}$')
-        ax.scatter(0.5*(bins[:,0]+bins[:,1]), pcfs[:,1], label=r'$\xi_{yy}$')
+        ax.axhline(y=0, ls='--', lw=1, c='gray')
+        ax.plot(dr, xi0, marker='o', ms=5, ls='-', lw=1, label=r'$\xi_{xx}$')
+        ax.plot(dr, xi1, marker='o', ms=5, ls='-', lw=1, label=r'$\xi_{yy}$')
         ax.legend()
-        ax.set_xlabel(r'$\Delta$', fontsize=12);
-        ax.set_ylabel(r'$\xi(\Delta)$', fontsize=12)
+        ax.set_xlabel(r'$\Delta$ [degrees]', fontsize=12);
+        ax.set_ylabel(r'$\xi(\Delta)$ [degrees$^2$]', fontsize=12)
 
     def plot_astrometric_residuals(self, ax, xs, ys):
         """
@@ -325,11 +226,10 @@ class AstrometryField:
         ----------
          ax: axis,
              Matplotlib axis in which to plot
-         xs: list,
-             List of the x- and y-components of the field (each an array)
-         ys: list,
+         xs: ndarray,
+             List of the x- and y-components of the field
+         ys: ndarray,
              List of the x- and y-components of the astrometric residual field
-             (each an array)
 
         Returns
         -------
@@ -348,7 +248,7 @@ class AstrometryField:
             color='#001146'
         )
         
-        q = ax.quiver(xs[0], xs[1], ys[0], ys[1], scale=1, **qdict)
+        q = ax.quiver(xs[:,0], xs[:,1], ys[:,0], ys[:,1], scale=1, **qdict)
         ax.quiverkey(q, 0.0, 1.8, 0.1, 'residual = 0.1 arcsec',
                      coordinates='data', labelpos='N',
                      color='darkred', labelcolor='darkred')
@@ -360,20 +260,19 @@ class AstrometryField:
         ax.set_ylim(-1.9, 2.0)
         ax.set_aspect('equal')
 
-    def compute_2pcf_tc(self, xs, ys, nbins=10):
+    def compute_2pcf_tc(self, xs, ys, bins=10):
         """
         Compute the 2-point correlation (covariance) function using TreeCorr.
 
         Parameters
         ----------
-         xs: list,
-             List of the x- and y-components of the field (each an array)
-         ys: list,
+         xs: ndarray,
+             List of the x- and y-components of the field
+         ys: ndarray,
              List of the x- and y-components of the astrometric residual field
-             (each an array)
-         nbins: int, optional
+         bins: int, optional
              The number of distance bins at which to compute the 2-point
-             correlation functions.
+             correlation functions
 
         Returns
         -------
@@ -383,11 +282,11 @@ class AstrometryField:
 
         seps = self.compute_separations(xs)
 
-        cat0 = treecorr.Catalog(x=xs[0], y=xs[1], k=ys[0])
-        cat1 = treecorr.Catalog(x=xs[0], y=xs[1], k=ys[1])
+        cat0 = treecorr.Catalog(x=xs[:,0], y=xs[:,1], k=ys[:,0])
+        cat1 = treecorr.Catalog(x=xs[:,0], y=xs[:,1], k=ys[:,1])
 
-        kk0 = treecorr.KKCorrelation(min_sep=1e-10, max_sep=np.max(seps), nbins=nbins, bin_type='Linear')
-        kk1 = treecorr.KKCorrelation(min_sep=1e-10, max_sep=np.max(seps), nbins=nbins, bin_type='Linear')
+        kk0 = treecorr.KKCorrelation(min_sep=1e-10, max_sep=np.max(seps), nbins=bins, bin_type='Linear')
+        kk1 = treecorr.KKCorrelation(min_sep=1e-10, max_sep=np.max(seps), nbins=bins, bin_type='Linear')
 
         kk0.process(cat0)
         kk1.process(cat1)
@@ -428,153 +327,29 @@ if __name__ == '__main__':
     """
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument('--data',type=str,required=False,default='output/out_1.pkl',
-                        help='Data file [.pkl]')
+    parser.add_argument('--infile',type=str,required=False,default='output/out_1.pkl',
+                        help='Input data file [.pkl]')
     parser.add_argument('--size',type=int,required=False,default=10,
                         help='Size of training sample [int]')
     args = parser.parse_args()
 
-    # load an example data output:
-    out = pickle.load(open(args.data, 'rb'))
-
     #---------------------------------------------------------------------------
     
-    af = AstrometryField(out)
-
-    xs = np.array([af.thx, af.thy]).T
-    ys = np.array([af.res_x, af.res_y]).T
-
-    import pdb;pdb.set_trace()
-    #xi0, xi1, dr = af.compute_2pcf(xs, ys, bins=10)
-    seps = np.array([np.sqrt(np.square(x[0]-xs[:,0])+np.square(x[1]-xs[:,1])) for x in xs])
-    pps = np.array([y*ys for y in ys])
-
-    counts, dr = np.histogram(seps, bins=bins)
-    xi0, _ = np.histogram(seps, bins=bins, weights=pps[:,:,0])
-    xi1, _ = np.histogram(seps, bins=bins, weights=pps[:,:,1])
-
-    dr = 0.5*(dr[:-1]+dr[1:])
-    xi0 /= counts
-    xi1 /= counts
-
+    af = AstrometryField(args.infile)
 
     #---------------------------------------------------------------------------
 
-    # Sanity check plot: 2-point correlation function using TreeCorr
+    # Sanity check plot: 2-point correlation function
     
     fig, axs = plt.subplots(1, 2, figsize=(16, 6))
-    af.plot_astrometric_residuals(axs[0], xs, ys)
+    af.plot_astrometric_residuals(axs[0], af.xs, af.ys)
+    af.plot_2pcf(axs[1], af.dr, af.xi0, af.xi1)
 
-    kk0, kk1 = af.compute_2pcf_tc(xs, ys)
-
-    axs[1].scatter(kk0.rnom, kk0.xi, label=r'$\xi_{xx}$')
-    axs[1].scatter(kk1.rnom, kk1.xi, label=r'$\xi_{yy}$')
-
-    axs[1].set_xlabel(r'$\Delta$')
-    axs[1].set_ylabel(r'$\xi(\Delta)$')
-    axs[1].legend()
-
-    plt.suptitle(f'{os.path.basename(args.data)}')
+    plt.suptitle(f'{os.path.basename(args.infile)}')
+    plt.tight_layout()
     plt.show()
 
-    ##---------------------------------------------------------------------------
-
-    ## Sanity check plot: 2-point correlation function for a given subsample
-    #
-    #fig, axs = plt.subplots(1, 2, figsize=(16, 6))
-    #af.plot_astrometric_residuals(axs[0], xs, ys)
-    #af.plot_2pcf(axs[1], xs, ys, nbins=10)
-
-    #plt.suptitle(f'{os.path.basename(args.data)}')
-    #plt.tight_layout()
-    #plt.show()
-
-    ##---------------------------------------------------------------------------
-
-    ## Sanity check plot: Distribution of pair products of a given subsample
-
-    ## Compute the separations between each point in the field
-    #seps = af.compute_separations(xs)
-
-    ## Define distance bins across the range of separation values
-    #rs = np.histogram_bin_edges(seps, bins=10)
-    #bins = np.array([rs[0:-1], rs[1:]]).T
-
-    ## For each bin, select the astrometric-residual values of the points
-    ## that lie within that distance bin
-    #vals = [af.select_values(xs, ys, b) for b in bins]
-
-    #fig, axs = plt.subplots(1, 2, figsize=(16, 6))
-
-    ##axs[0].hist([np.outer(val[:,0], val[:,0])[~np.tri(len(val),k=-1,dtype=bool)] for val in vals], bins=50, histtype='step')
-    ##axs[0].vlines([np.nanmean(np.outer(val[:,0], val[:,0])[~np.tri(len(val),k=-1,dtype=bool)]) for val in vals], ymin=0, ymax=1)
-    ##axs[0].set_xlabel(r'${\rm res}_{x, i} \times {\rm res}_{x, j}$')
-    #axs[0].axhline(y=0, c='gray', ls='--')
-    #pps0 = [np.outer(val[:,0], val[:,0])[~np.tri(len(val),k=-1,dtype=bool)] for val in vals]
-    #pps0 = [pp[np.isfinite(pp)] for pp in pps0]
-    #axs[0].violinplot(pps0,
-    #                  showextrema=False,
-    #                  showmeans=True)
-    #axs[0].set_xlabel(r'Distance bin')
-    #axs[0].set_ylabel(r'${\rm res}_{x, i} \times {\rm res}_{x, j}$')
-    ##axs[0].set_ylim(-0.0001, 0.0001)
-
-    ##axs[1].hist([np.outer(val[:,1], val[:,1])[~np.tri(len(val),k=-1,dtype=bool)] for val in vals], bins=50, histtype='step')
-    ##axs[1].vlines([np.nanmean(np.outer(val[:,1], val[:,1])[~np.tri(len(val),k=-1,dtype=bool)]) for val in vals], ymin=0, ymax=1)
-    ##axs[1].set_xlabel(r'${\rm res}_{y, i} \times {\rm res}_{y, j}$')
-    #axs[1].axhline(y=0, c='gray', ls='--')
-    #pps1 = [np.outer(val[:,1], val[:,1])[~np.tri(len(val),k=-1,dtype=bool)] for val in vals]
-    #pps1 = [pp[np.isfinite(pp)] for pp in pps0]
-    #axs[1].violinplot(pps1,
-    #                  showextrema=False,
-    #                  showmeans=True)
-    #axs[1].set_xlabel(r'Distance bin')
-    #axs[1].set_ylabel(r'${\rm res}_{y, i} \times {\rm res}_{y, j}$')
-    ##axs[1].set_ylim(-0.0001, 0.0001)
-
-    #plt.suptitle(f'{os.path.basename(args.data)}')
-    #plt.tight_layout()
-    #plt.show()
-
-    ##---------------------------------------------------------------------------
-
-    ## Sanity check plot: Distribution of 2-point correlation function over
-    ##                    many subsamples
-
-    #fig, axs = plt.subplots(1, 3, figsize=(24, 6))
-    #af.plot_astrometric_residuals(axs[0], [af.thx, af.thy], [af.res_x, af.res_y])
-
-    #N = 100
-    #rs = np.linspace(0, 4, 11)
-    #bins = np.array([rs[0:-1], rs[1:]]).T
-    #pcfs0 = np.empty((N, len(bins)))
-    #pcfs1 = np.empty((N, len(bins)))
-
-    #for i in range(N):
-    #    xs0_train, xs1_train, ys0_train, ys1_train, xs0_test, xs1_test, ys0_test, ys1_test = af.get_train_test(size=args.size)
-    #    xs = [xs0_train, xs1_train]
-    #    ys = [ys0_train, ys1_train]
-    #    seps = af.compute_separations(xs)
-    #    vals = [af.select_values(xs, ys, b) for b in bins]
-    #    pcfs = np.array([af.compute_2pcf(val) for val in vals])
-    #    pcfs0[i] = pcfs[:,0]
-    #    pcfs1[i] = pcfs[:,1]
-
-    #axs[1].violinplot(dataset=pcfs0, positions=0.5*(bins[:,0]+bins[:,1]))
-    #axs[1].set_xlabel(r'$\Delta$', fontsize=12);
-    #axs[1].set_ylabel(r'$\xi(\Delta)$', fontsize=12)
-    #axs[1].set_title(r'$\xi_{xx}$')
-
-    #axs[2].violinplot(dataset=pcfs1, positions=0.5*(bins[:,0]+bins[:,1]))
-    #axs[2].set_xlabel(r'$\Delta$', fontsize=12);
-    #axs[2].set_ylabel(r'$\xi(\Delta)$', fontsize=12)
-    #axs[2].set_title(r'$\xi_{yy}$')
-
-    #plt.suptitle(f'{os.path.basename(args.data)}')
-    #plt.tight_layout()
-    #plt.show()
-
-    ##---------------------------------------------------------------------------
+    #---------------------------------------------------------------------------
 
     ##m = af.gpr_train([xs0_train, xs1_train], [ys0_train, ys1_train])
     ###Xs0, Xs1 = np.meshgrid(xs0_train, xs1_train)
