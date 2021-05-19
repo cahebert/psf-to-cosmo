@@ -4,6 +4,7 @@ Module containing the AstrometryField class for analyzing astrometric residual f
 import os
 import pickle
 import numpy as np
+from scipy.spatial import distance_matrix
 from sklearn.model_selection import train_test_split
 import matplotlib.pyplot as plt
 import seaborn
@@ -172,9 +173,8 @@ class AstrometryField:
 
         # seps has shape (N, N) up to ind
         # calculate the euclidean separation between each point in the field
-        # note that applying the `ind` selection before the hypotenuse calculation
-        # seems to be faster in general
-        seps = np.hypot((xs[:,0] - xs[:,0,np.newaxis])[ind], (xs[:,1] - xs[:,1,np.newaxis])[ind])
+        #seps = np.hypot((xs[:,0] - xs[:,0,np.newaxis])[ind], (xs[:,1] - xs[:,1,np.newaxis])[ind])
+        seps = distance_matrix(xs, xs)[ind]
 
         # pps0, pps1 have shape (N, N) up to ind
         # calculate the pair products of each component of each point of the
@@ -343,6 +343,7 @@ if __name__ == '__main__':
     #---------------------------------------------------------------------------
     
     af = AstrometryField(args.infile)
+    import pdb;pdb.set_trace()
 
     #---------------------------------------------------------------------------
 
