@@ -167,15 +167,18 @@ class AstrometryField:
              2-point correlation function of the y-component of the astrometric
              residual field
         """
-        # seps has shape (N, N)
-        # calculate the euclidean separation between each point in the field
-        seps = np.asarray([np.sqrt(np.square(x[0]-xs[:,0])+np.square(x[1]-xs[:,1])) for x in xs])
+        # ``upper triangle'' indices for an (N, N) array
+        ind = np.triu_indices(xs.shape[0])
 
-        # pps0, pps1 have shape (N, N)
+        # seps has shape (N, N) up to ind
+        # calculate the euclidean separation between each point in the field
+        seps = np.asarray([np.sqrt(np.square(x[0]-xs[:,0])+np.square(x[1]-xs[:,1])) for x in xs])[ind]
+
+        # pps0, pps1 have shape (N, N) up to ind
         # calculate the pair products of each component of each point of the
         # astrometric residuals
-        pps0 = np.outer(ys[:,0], ys[:,0])
-        pps1 = np.outer(ys[:,1], ys[:,1])
+        pps0 = np.outer(ys[:,0], ys[:,0])[ind]
+        pps1 = np.outer(ys[:,1], ys[:,1])[ind]
 
         # Use histograms to efficiently select pps according to sep
         # Inspired by Gary Bernstein via Pierre-Francois Leget
@@ -337,9 +340,6 @@ if __name__ == '__main__':
     #---------------------------------------------------------------------------
     
     af = AstrometryField(args.infile)
-    import pdb;pdb.set_trace()
-    seps = np.asarray([np.sqrt(np.square(x[0]-xs[:,0])+np.square(x[1]-xs[:,1])) for x in xs])
-    pps = np.asarray([y*ys for y in ys])
 
     #---------------------------------------------------------------------------
 
