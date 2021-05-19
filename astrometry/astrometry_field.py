@@ -167,18 +167,14 @@ class AstrometryField:
              2-point correlation function of the y-component of the astrometric
              residual field
         """
-        # ``upper triangle'' indices for an (N, N) array
+        # ``upper triangle`` indices for an (N, N) array
         ind = np.triu_indices(xs.shape[0])
 
         # seps has shape (N, N) up to ind
         # calculate the euclidean separation between each point in the field
-        # SM: Trying out different implementations
-        #     The first uses a list comprehension and is reasonably fast
-        #     The second uses a meshgrid; it seems slower than the list comprehension
-        #     The third uses array broadcasting and may be fastest
-        #seps = np.asarray([np.hypot(x[0]-xs[:,0],x[1]-xs[:,1]) for x in xs])[ind]
-        #seps = np.hypot(np.subtract(*np.meshgrid(xs[:,0], xs[:,0], copy=False))[ind], np.subtract(*np.meshgrid(xs[:,1], xs[:,1], copy=False))[ind])
-        seps = np.hypot((xs[:,0] - xs[:,0].reshape(-1,1))[ind], (xs[:,1] - xs[:,1].reshape(-1,1))[ind])
+        # note that applying the `ind` selection before the hypotenuse calculation
+        # seems to be faster in general
+        seps = np.hypot((xs[:,0] - xs[:,0,np.newaxis])[ind], (xs[:,1] - xs[:,1,np.newaxis])[ind])
 
         # pps0, pps1 have shape (N, N) up to ind
         # calculate the pair products of each component of each point of the
@@ -192,6 +188,7 @@ class AstrometryField:
         xi0, _ = np.histogram(seps, bins=bins, weights=pps0)
         xi1, _ = np.histogram(seps, bins=bins, weights=pps1)
 
+        # Normalize quantities
         dr = 0.5*(dr[:-1]+dr[1:])
         xi0 /= counts
         xi1 /= counts
@@ -349,15 +346,15 @@ if __name__ == '__main__':
 
     #---------------------------------------------------------------------------
 
-    # Sanity check plot: 2-point correlation function
-    
-    fig, axs = plt.subplots(1, 2, figsize=(16, 6))
-    af.plot_astrometric_residuals(axs[0], af.xs, af.ys)
-    af.plot_2pcf(axs[1], af.dr, af.xi0, af.xi1)
+    ## Sanity check plot: 2-point correlation function
+    #
+    #fig, axs = plt.subplots(1, 2, figsize=(16, 6))
+    #af.plot_astrometric_residuals(axs[0], af.xs, af.ys)
+    #af.plot_2pcf(axs[1], af.dr, af.xi0, af.xi1)
 
-    plt.suptitle(f'{os.path.basename(args.infile)}')
-    plt.tight_layout()
-    plt.show()
+    #plt.suptitle(f'{os.path.basename(args.infile)}')
+    #plt.tight_layout()
+    #plt.show()
 
     #---------------------------------------------------------------------------
 
