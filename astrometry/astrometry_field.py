@@ -172,7 +172,13 @@ class AstrometryField:
 
         # seps has shape (N, N) up to ind
         # calculate the euclidean separation between each point in the field
-        seps = np.asarray([np.sqrt(np.square(x[0]-xs[:,0])+np.square(x[1]-xs[:,1])) for x in xs])[ind]
+        # SM: Trying out different implementations
+        #     The first uses a list comprehension and is reasonably fast
+        #     The second uses a meshgrid; it seems slower than the list comprehension
+        #     The third uses array broadcasting and may be fastest
+        #seps = np.asarray([np.hypot(x[0]-xs[:,0],x[1]-xs[:,1]) for x in xs])[ind]
+        #seps = np.hypot(np.subtract(*np.meshgrid(xs[:,0], xs[:,0], copy=False))[ind], np.subtract(*np.meshgrid(xs[:,1], xs[:,1], copy=False))[ind])
+        seps = np.hypot((xs[:,0] - xs[:,0].reshape(-1,1))[ind], (xs[:,1] - xs[:,1].reshape(-1,1))[ind])
 
         # pps0, pps1 have shape (N, N) up to ind
         # calculate the pair products of each component of each point of the
