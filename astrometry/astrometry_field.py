@@ -24,7 +24,7 @@ import treecorr
 #-------------------------------------------------------------------------------
 
 class AstrometryField:
-    def __init__(self, ddict):
+    def __init__(self, ddict, pscale=0.2):
         """
         Initialize AstrometryField class.
 
@@ -32,6 +32,8 @@ class AstrometryField:
         ----------
          ddict: dict,
              Dictionary output from psfws
+         pscale: float, 0.2,
+             Pixel scale in asec (0.2 for LSST)
 
         Returns
         -------
@@ -43,15 +45,17 @@ class AstrometryField:
         # I guess it might be a source of bug in the future. I know this is
         # define in the main and python allowed that but I think this is dirty.
         # I guess it needs to be define within the __init__.
-        self.x = np.array(out['x'])
-        self.y = np.array(out['y'])
-        self.thx = np.array(out['thx'])
-        self.thy = np.array(out['thy'])
+        #SM: thanks for the catch---this was supposed to be ddict.
+        self.x = np.array(ddict['x'])
+        self.y = np.array(ddict['y'])
+        self.thx = np.array(ddict['thx'])
+        self.thy = np.array(ddict['thy'])
 
         #PF COMMENTS: I don't think to hard coded this kind of parameters,
         # is a good practice. Imagine that Claire-Alice want to produce simulation
         # for DES (pscale=0.26). I guess it should be define within the __init__. 
-        self.pscale = 0.2 # LSST pixel scale in asec
+        #SM: good point, changed.
+        self.pscale = pscale
         self.res_x, self.res_y = self.get_astrometric_residuals()
 
     def get_astrometric_residuals(self):
