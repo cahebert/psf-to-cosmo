@@ -12,18 +12,32 @@ seaborn.set_palette('bright')
 
 import treecorr
 
-#import GPy
-#import gpflow
-#import tensorflow as tf
+#-------------------------------------------------------------------------------
+
+# see discussion here: https://stackoverflow.com/questions/50185399/multiple-output-gaussian-process-regression-in-scikit-learn
+
+import tensorflow as tf
+import gpflow as gpf
+
+from gpflow.utilities import print_summary
+from gpflow.ci_utils import ci_niter
+
+MAXITER = ci_niter(2000)
+adam_learning_rate = 0.01
 
 #-------------------------------------------------------------------------------
 
-#class AnisotropicRBF(gpflow.kernels.AnisotropicStationary):
-#    def K_d(self, d):
-#        #def __init__(self, variance=1.0, lengthscales=1.0, rho=1.0, active_dims=None):
-#        #    super().__init__(variance=variance, lengthscales=lengthscales, active_dims=active_dims)
-#        #    self.rho = Parameter(rho, transform=positive())
-#        return self.variance * tf.exp(-0.5*tf.tensordot(d, d, 2))
+def optimize_model_with_scipy(model, data):
+    """
+    From https://gpflow.readthedocs.io/en/master/notebooks/advanced/multioutput.html
+    """
+    optimizer = gpf.optimizers.Scipy()
+    optimizer.minimize(
+        model.training_loss_closure(data),
+        variables=model.trainable_variables,
+        method="l-bfgs-b",
+        options={"disp": True, "maxiter": MAXITER}
+    )
 
 #-------------------------------------------------------------------------------
 
@@ -60,7 +74,6 @@ class AstrometryField:
         self.ys = np.array([self.res_x, self.res_y]).T
 
         self.bins = bins
-        self.dr, self.xi0, self.xi1 = self.compute_2pcf(self.xs, self.ys, bins=self.bins)
 
     def load_data(self, infile):
         """
@@ -137,7 +150,7 @@ class AstrometryField:
              Testing subset of the astrometric residual components
         """
         xs_train, xs_test, ys_train, ys_test = train_test_split(self.xs, self.ys,
-                                                                test_size=size,
+                                                                train_size=size,
                                                                 random_state=42)
 
         return xs_train, xs_test, ys_train, ys_test
@@ -150,9 +163,9 @@ class AstrometryField:
         Parameters
         ----------
          xs: ndarray,
-             List of the x- and y-components of the field
+             Array of the x- and y-components of the field
          ys: ndarray,
-             List of the x- and y-components of the astrometric residual field
+             Array of the x- and y-components of the astrometric residual field
          bins: int, optional
              The number of distance bins at which to compute the 2-point
              correlation functions
@@ -234,9 +247,9 @@ class AstrometryField:
          ax: axis,
              Matplotlib axis in which to plot
          xs: ndarray,
-             List of the x- and y-components of the field
+             Array of the x- and y-components of the field
          ys: ndarray,
-             List of the x- and y-components of the astrometric residual field
+             Array of the x- and y-components of the astrometric residual field
 
         Returns
         -------
@@ -274,9 +287,9 @@ class AstrometryField:
         Parameters
         ----------
          xs: ndarray,
-             List of the x- and y-components of the field
+             Array of the x- and y-components of the field
          ys: ndarray,
-             List of the x- and y-components of the astrometric residual field
+             Array of the x- and y-components of the astrometric residual field
          bins: int, optional
              The number of distance bins at which to compute the 2-point
              correlation functions
@@ -301,29 +314,51 @@ class AstrometryField:
         return kk0, kk1
 
 
-    #def gpr_train(self, xs, ys):
-    #    #k = gpflow.kernels.SquaredExponential(lengthscales=[0.01, 0.01]) + gpflow.kernels.White()
-    #    k = gpflow.kernels.SquaredExponential(active_dims=[0]) \
-    #      * gpflow.kernels.SquaredExponential(active_dims=[1]) \
-    #      + gpflow.kernels.White()
-    #    #k = AnisotropicRBF() + gpflow.kernels.White()
-    #    
-    #    m = gpflow.models.GPR(data=(np.array(xs).T,
-    #                                np.array(ys).T),
-    #                          kernel=k,
-    #                          mean_function=None)
-    #    
-    #    opt = gpflow.optimizers.Scipy()
-    #    opt_logs = opt.minimize(m.training_loss, m.trainable_variables, options=dict(maxiter=100))
-    #    
-    #    gpflow.utilities.print_summary(m)
+    def gpr_train(self, xs, ys):
+        """
+        Perform Gaussian Process regression over the astrometric residual field
 
-    #    return m
+        Parameters
+        ----------
+         xs: ndarray,
+             Array of the x- and y-components of the field
+         ys: ndarray,
+             Array of the x- and y-components of the astrometric residual field
 
-    #def gpr_predict(self, m, xs, ys):
-    #    pred, var = m.predict_f(np.array([xs[0], xs[1]]).T)
+        Returns
+        -------
+         m: ???,
+             `GPy` model
+        """
+        k = GPy.kern.RBF(input_dim=2, active_dims=[0,1], ARD=True, variance=0.1, lengthscale=[0.01, 0.01]) + GPy.kern.White(input_dim=2)
+        
+        m = GPy.models.GPRegression(xs, ys, kernel=k)
+        
+        m.optimize(messages=True)
 
-    #    return pred, var
+        return m
+
+    def gpr_predict(self, m, xs, ys):
+        """
+        Perform Gaussian Process regression over the astrometric residual field
+
+        Parameters
+        ----------
+         m: ???,
+             `GPy` model
+         xs: ndarray,
+             Array of the x- and y-components of the field
+
+        Returns
+        -------
+         pred: ndarray,
+             Gaussian Process prediction mean over xs
+         var: ndarray,
+             Gaussian Process prediction variance over xs
+        """
+        pred, var = m.predict(xs)
+
+        return pred, var
 
 
 #-------------------------------------------------------------------------------
@@ -336,14 +371,108 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--infile',type=str,required=False,default='output/out_1.pkl',
                         help='Input data file [.pkl]')
-    parser.add_argument('--size',type=int,required=False,default=10,
+    parser.add_argument('--size',type=int,required=False,default=100,
                         help='Size of training sample [int]')
     args = parser.parse_args()
 
     #---------------------------------------------------------------------------
     
     af = AstrometryField(args.infile)
-    import pdb;pdb.set_trace()
+
+    xs_train, xs_test, ys_train, ys_test = af.get_train_test(size=args.size)
+
+    # Define relevant constants
+    N = 5000  # number of points
+    D = 2  # number of input dimensions
+    M = len(xs_train)  # number of inducing points
+    L = 2  # number of latent GPs
+    P = 2  # number of observations = output dimensions
+    Zinit = xs_train # initialization of inducing input locations (M random points from the training inputs)
+    Z = Zinit.copy()
+
+    # Define the kernel and model
+    #k = gpf.kernels.SharedIndependent(gpf.kernels.SquaredExponential(lengthscales=0.3, variance=2e-5) + gpf.kernels.White(), output_dim=P)
+    #iv = gpf.inducing_variables.SharedIndependentInducingVariables(gpf.inducing_variables.InducingPoints(Z))
+    #m = gpf.models.SVGP(k, gpf.likelihoods.Gaussian(), inducing_variable=iv, num_latent_gps=P)
+
+    #k_list = [gpf.kernels.SquaredExponential(lengthscales=0.3, variance=2e-5) + gpf.kernels.White() for _ in range(P)]
+    #k = gpf.kernels.SeparateIndependent(k_list)
+    #iv = gpf.inducing_variables.SharedIndependentInducingVariables(gpf.inducing_variables.InducingPoints(Z))
+    #m = gpf.models.SVGP(k, gpf.likelihoods.Gaussian(), inducing_variable=iv, num_latent_gps=P)
+
+    k_list = [gpf.kernels.SquaredExponential(lengthscales=0.3, variance=2e-5) for _ in range(P)]
+    k = gpf.kernels.LinearCoregionalization(k_list, W=np.random.randn(P, L))
+    iv = gpf.inducing_variables.SharedIndependentInducingVariables(gpf.inducing_variables.InducingPoints(Z))
+    # initialize mean of variational posterior to be of shape MxL
+    q_mu = np.zeros((M, L))
+    # initialize \sqrt(Σ) of variational posterior to be of shape LxMxM
+    q_sqrt = np.repeat(np.eye(M)[None, ...], L, axis=0) * 1.0
+    m = gpf.models.SVGP(k, gpf.likelihoods.Gaussian(), inducing_variable=iv, q_mu=q_mu, q_sqrt=q_sqrt)
+
+    # Optimize the model over the data
+    optimize_model_with_scipy(m, [af.xs, af.ys])
+    gpf.utilities.print_summary(m)
+
+    ## Follow https://gpflow.readthedocs.io/en/master/notebooks/advanced/natural_gradients.html
+    ## Optimize the model over the data
+    #variational_params = [(m.q_mu, m.q_sqrt)]
+    #natgrad_opt = gpf.optimizers.NaturalGradient(gamma=1.0)
+    ## Stop Adam from optimizing the variational parameters
+    #gpf.set_trainable(m.q_mu, False)
+    #gpf.set_trainable(m.q_sqrt, False)
+    #adam_opt_for_svgp = tf.optimizers.Adam(adam_learning_rate)
+    #for i in range(ci_niter(100)):
+    #    natgrad_opt.minimize(m.training_loss_closure([af.xs, af.ys]), var_list=variational_params)
+    #    adam_opt_for_svgp.minimize(m.training_loss_closure([af.xs, af.ys]), var_list=m.trainable_variables)
+    #    likelihood = m.elbo([af.xs, af.ys])
+    #    tf.print(f"SVGP with NaturalGradient and Adam: iteration {i + 1} likelihood {likelihood:.04f}")
+    #gpf.utilities.print_summary(m)
+
+    # Make predictions
+    # Note: predict_f() returns denoised signal
+    #       predict_y() returns noisy signal
+    pred, var = m.predict_y(xs_test)
+
+    fig, axs = plt.subplots(2, 2, figsize=(8, 8))
+    af.plot_astrometric_residuals(axs[0,0], af.xs, af.ys)
+    af.plot_astrometric_residuals(axs[0,1], xs_train, ys_train)
+    af.plot_astrometric_residuals(axs[1,0], xs_test, ys_test)
+    af.plot_astrometric_residuals(axs[1,1], xs_test, pred)
+
+    axs[0,0].set_title('Input')
+    axs[0,1].set_title(f'Inducing (n = {M})')
+    axs[1,0].set_title('Test')
+    axs[1,1].set_title('Pred')
+
+    plt.suptitle(f'{os.path.basename(args.infile)}')
+    plt.tight_layout()
+    #plt.savefig(f'{os.path.splitext(os.path.basename(args.infile))[0]}_n={M}.pdf')
+    plt.show()
+
+    #---------------------------------------------------------------------------
+
+    #fig, ax = plt.subplots(1, 1, figsize=(8, 6))
+    #k.plot(ax=ax, color='k', ls='--', label='GP kernel')
+    #ax.axhline(y=0, ls='--', lw=1, c='gray')
+    #ax.plot(dr, xi0, marker='o', ms=5, ls='-', lw=1, label=r'$\xi_{xx}$')
+    #ax.plot(dr, xi1, marker='o', ms=5, ls='-', lw=1, label=r'$\xi_{yy}$')
+    #ax.legend()
+    #ax.set_xlabel(r'$\Delta$ [degrees]', fontsize=12);
+    #ax.set_ylabel(r'$\xi(\Delta)$ [degrees$^2$]', fontsize=12)
+    #ax.set_xlim(0, np.max(dr)+np.diff(dr)[0])
+    #plt.show()
+
+    #dr, xi0, xi1 = af.compute_2pcf(af.xs, af.ys)
+
+    #fig, axs = plt.subplots(1, 3, figsize=(24, 6))
+    #af.plot_astrometric_residuals(axs[0], af.xs, af.ys)
+    #af.plot_2pcf(axs[1], dr, xi0, xi1)
+    #af.plot_astrometric_residuals(axs[0], af.xs, pred)
+
+    #plt.suptitle(f'{os.path.basename(args.infile)}')
+    #plt.tight_layout()
+    #plt.show()
+    
 
     #---------------------------------------------------------------------------
 
@@ -351,7 +480,7 @@ if __name__ == '__main__':
     #
     #fig, axs = plt.subplots(1, 2, figsize=(16, 6))
     #af.plot_astrometric_residuals(axs[0], af.xs, af.ys)
-    #af.plot_2pcf(axs[1], af.dr, af.xi0, af.xi1)
+    #af.plot_2pcf(axs[1], dr, xi0, xi1)
 
     #plt.suptitle(f'{os.path.basename(args.infile)}')
     #plt.tight_layout()
