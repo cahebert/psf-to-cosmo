@@ -22,8 +22,7 @@ import gpflow as gpf
 from gpflow.utilities import print_summary
 from gpflow.ci_utils import ci_niter
 
-MAXITER = ci_niter(2000)
-adam_learning_rate = 0.01
+MAXITER = ci_niter(5000)
 
 #-------------------------------------------------------------------------------
 
@@ -38,6 +37,19 @@ def optimize_model_with_scipy(model, data):
         method="l-bfgs-b",
         options={"disp": True, "maxiter": MAXITER}
     )
+
+# Follow https://gpflow.readthedocs.io/en/master/notebooks/advanced/natural_gradients.html
+# Empirically, want to keep gamma ~ 0.1--1.0, and learning_rate ~ 0.1--1.0
+# This might change depending on the number of inducing points
+# Optimize the model over the data
+natgrad_opt = gpf.optimizers.NaturalGradient(gamma=0.1)
+adam_opt_for_svgp = tf.optimizers.Adam(learning_rate=0.01)
+
+# Need to decorate this step following https://stackoverflow.com/a/61864311
+@tf.function
+def optimization_step(model, data):
+    natgrad_opt.minimize(model.training_loss_closure(data), var_list=[(model.q_mu, model.q_sqrt)])
+    adam_opt_for_svgp.minimize(model.training_loss_closure(data), var_list=model.trainable_variables)
 
 #-------------------------------------------------------------------------------
 
@@ -371,7 +383,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--infile',type=str,required=False,default='output/out_1.pkl',
                         help='Input data file [.pkl]')
-    parser.add_argument('--size',type=int,required=False,default=100,
+    parser.add_argument('--size',type=int,required=False,default=10,
                         help='Size of training sample [int]')
     args = parser.parse_args()
 
@@ -379,6 +391,8 @@ if __name__ == '__main__':
     
     af = AstrometryField(args.infile)
 
+    xs_grid = np.array([x.ravel() for x in np.meshgrid(np.linspace(np.min(af.xs[:,0]), np.max(af.xs[:,0]), args.size),
+                                                       np.linspace(np.min(af.xs[:,1]), np.max(af.xs[:,1]), args.size))]).T
     xs_train, xs_test, ys_train, ys_test = af.get_train_test(size=args.size)
 
     # Define relevant constants
@@ -387,46 +401,42 @@ if __name__ == '__main__':
     M = len(xs_train)  # number of inducing points
     L = 2  # number of latent GPs
     P = 2  # number of observations = output dimensions
-    Zinit = xs_train # initialization of inducing input locations (M random points from the training inputs)
+    #Zinit = xs_train # initialization of inducing input locations (M random points from the training inputs)
+    Zinit = xs_grid # initialization of inducing input locations (M random points from the training inputs)
     Z = Zinit.copy()
 
     # Define the kernel and model
-    #k = gpf.kernels.SharedIndependent(gpf.kernels.SquaredExponential(lengthscales=0.3, variance=2e-5) + gpf.kernels.White(), output_dim=P)
-    #iv = gpf.inducing_variables.SharedIndependentInducingVariables(gpf.inducing_variables.InducingPoints(Z))
-    #m = gpf.models.SVGP(k, gpf.likelihoods.Gaussian(), inducing_variable=iv, num_latent_gps=P)
+    k = gpf.kernels.SharedIndependent(gpf.kernels.SquaredExponential(lengthscales=0.3, variance=2e-5), output_dim=P)
+    iv = gpf.inducing_variables.SharedIndependentInducingVariables(gpf.inducing_variables.InducingPoints(Z))
+    m = gpf.models.SVGP(k, gpf.likelihoods.Gaussian(), inducing_variable=iv, num_latent_gps=P)
 
     #k_list = [gpf.kernels.SquaredExponential(lengthscales=0.3, variance=2e-5) + gpf.kernels.White() for _ in range(P)]
     #k = gpf.kernels.SeparateIndependent(k_list)
     #iv = gpf.inducing_variables.SharedIndependentInducingVariables(gpf.inducing_variables.InducingPoints(Z))
     #m = gpf.models.SVGP(k, gpf.likelihoods.Gaussian(), inducing_variable=iv, num_latent_gps=P)
 
-    k_list = [gpf.kernels.SquaredExponential(lengthscales=0.3, variance=2e-5) for _ in range(P)]
-    k = gpf.kernels.LinearCoregionalization(k_list, W=np.random.randn(P, L))
-    iv = gpf.inducing_variables.SharedIndependentInducingVariables(gpf.inducing_variables.InducingPoints(Z))
-    # initialize mean of variational posterior to be of shape MxL
-    q_mu = np.zeros((M, L))
-    # initialize \sqrt(Σ) of variational posterior to be of shape LxMxM
-    q_sqrt = np.repeat(np.eye(M)[None, ...], L, axis=0) * 1.0
-    m = gpf.models.SVGP(k, gpf.likelihoods.Gaussian(), inducing_variable=iv, q_mu=q_mu, q_sqrt=q_sqrt)
+    #k_list = [gpf.kernels.SquaredExponential(lengthscales=0.3, variance=2e-5) for _ in range(P)]
+    #k = gpf.kernels.LinearCoregionalization(k_list, W=np.random.randn(P, L))
+    #iv = gpf.inducing_variables.SharedIndependentInducingVariables(gpf.inducing_variables.InducingPoints(Z))
+    ## initialize mean of variational posterior to be of shape MxL
+    #q_mu = np.zeros((M, L))
+    ## initialize \sqrt(Σ) of variational posterior to be of shape LxMxM
+    #q_sqrt = np.repeat(np.eye(M)[None, ...], L, axis=0) * 1.0
+    #m = gpf.models.SVGP(k, gpf.likelihoods.Gaussian(), inducing_variable=iv, q_mu=q_mu, q_sqrt=q_sqrt)
 
-    # Optimize the model over the data
-    optimize_model_with_scipy(m, [af.xs, af.ys])
-    gpf.utilities.print_summary(m)
+    # Stop Adam from optimizing the variational parameters
+    gpf.set_trainable(m.q_mu, False)
+    gpf.set_trainable(m.q_sqrt, False)
 
-    ## Follow https://gpflow.readthedocs.io/en/master/notebooks/advanced/natural_gradients.html
     ## Optimize the model over the data
-    #variational_params = [(m.q_mu, m.q_sqrt)]
-    #natgrad_opt = gpf.optimizers.NaturalGradient(gamma=1.0)
-    ## Stop Adam from optimizing the variational parameters
-    #gpf.set_trainable(m.q_mu, False)
-    #gpf.set_trainable(m.q_sqrt, False)
-    #adam_opt_for_svgp = tf.optimizers.Adam(adam_learning_rate)
-    #for i in range(ci_niter(100)):
-    #    natgrad_opt.minimize(m.training_loss_closure([af.xs, af.ys]), var_list=variational_params)
-    #    adam_opt_for_svgp.minimize(m.training_loss_closure([af.xs, af.ys]), var_list=m.trainable_variables)
-    #    likelihood = m.elbo([af.xs, af.ys])
-    #    tf.print(f"SVGP with NaturalGradient and Adam: iteration {i + 1} likelihood {likelihood:.04f}")
+    #optimize_model_with_scipy(m, [af.xs, af.ys])
     #gpf.utilities.print_summary(m)
+
+    for i in range(MAXITER):
+        optimization_step(m, [af.xs, af.ys])
+        likelihood = m.elbo([af.xs, af.ys])
+        tf.print(f"SVGP with NaturalGradient and Adam: iteration {i + 1} likelihood {likelihood:.04f}")
+    gpf.utilities.print_summary(m)
 
     # Make predictions
     # Note: predict_f() returns denoised signal
