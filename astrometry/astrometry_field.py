@@ -5,7 +5,7 @@ import os
 import pickle
 import numpy as np
 from scipy import stats
-from scipy.spatial import distance_matrix
+#from scipy.spatial import distance_matrix
 from sklearn.model_selection import train_test_split
 import matplotlib;matplotlib.use('Agg')
 import matplotlib.pyplot as plt
@@ -56,10 +56,9 @@ def optimization_step(model, data):
 
 #-------------------------------------------------------------------------------
 
-class vonKarmanKernel(gpf.kernels.AnisotropicStationary):
+class AnisotropicRBF(gpf.kernels.AnisotropicStationary):
     """
-    Isotropic von Karman kernel as proposed in https://arxiv.org/abs/1110.4913
-    based on implementation in https://github.com/PFLeget/treegp/blob/master/treegp/kernels.py
+    Anisotropic version of the radial basis function (RBF) kernel
     """
     def __init__(self, variance=1.0, lengthscales=1.0):
         """
@@ -69,30 +68,29 @@ class vonKarmanKernel(gpf.kernels.AnisotropicStationary):
         ----------
          variance: float, 1.0,
              Variance of correlations
-         scale: float, 1.0,
+         lengthscales: float, 1.0,
              Lengthscale of correlations
 
         Returns
         -------
-         vonKarmanKernel
+         AnisotropicRBF
         """
-        super().__init__(active_dims=[0])
+        super().__init__(active_dims=[0,1])
         self.variance = gpf.Parameter(variance, transform=positive())
         self.lengthscales = gpf.Parameter(lengthscales, transform=positive())
+        self.cov = gpf.Parameter(np.eye(len(lengthscales)) + 1e-7, transform=positive()) # Identity + jitter
 
-    def K(self, X, X2=None):
-        """
-        The kernel is given by Eq. 14 of https://arxiv.org/abs/2103.09881
-        """
-        if X2 is None:
-            X2 = X
-        #dists = tf.transpose(X-X2) * invL * (X-X2)
-        dists = self.scaled_difference_matrix(X, X2)
-        return tf.square(self.variance) * tf.pow(dists, 5/6) \
-               * tfp.math.bessel_kve(-5/6, 2 * np.pi * dists)
+    def K_d(self, d):
+        # Isotropic version:
+        # First, take the square of the differences
+        # Second, sum over the -1 axis (i.e., add the x- and y-components)
+        #d2 = tf.reduce_sum(tf.square(d), axis=-1)
+        #return self.variance * tf.exp(-0.5 * d2)
 
-    #def K_diag(self, X):
-    #    return self.variance * tf.reshape(X, (-1,))  # this returns a 1D tensor
+        # Anisotropic version
+        # Compute (x, y) * Cov * (x, y)^T
+        d2 = self.cov[0,0] * tf.square(d[:,:,0]) + (self.cov[0,1] + self.cov[1,0]) * d[:,:,0] * d[:,:,1] + self.cov[1,1] * tf.square(d[:,:,1])
+        return self.variance * tf.exp(-0.5 * d2)
 
 #-------------------------------------------------------------------------------
 
@@ -241,8 +239,8 @@ class AstrometryField:
 
         # seps has shape (N, N) up to ind
         # calculate the euclidean separation between each point in the field
-        #seps = np.hypot((xs[:,0] - xs[:,0,np.newaxis])[ind], (xs[:,1] - xs[:,1,np.newaxis])[ind])
-        seps = distance_matrix(xs, xs)[ind]
+        seps = np.hypot((xs[:,0] - xs[:,0,np.newaxis])[ind], (xs[:,1] - xs[:,1,np.newaxis])[ind])
+        #seps = distance_matrix(xs, xs)[ind]
 
         # pps0, pps1 have shape (N, N) up to ind
         # calculate the pair products of each component of each point of the
@@ -535,8 +533,12 @@ if __name__ == '__main__':
 
     #--------------------
 
-    k = gpf.kernels.SquaredExponential(lengthscales=[0.3, 0.3], variance=2e-5)
+    #k = gpf.kernels.SquaredExponential(lengthscales=[0.3, 0.3], variance=2e-5)
+    #m = gpf.models.GPR(data=(xs_train, ys_train), kernel=k, mean_function=None)
+
+    k = AnisotropicRBF(lengthscales=[0.3, 0.3], variance=2e-5)
     m = gpf.models.GPR(data=(xs_train, ys_train), kernel=k, mean_function=None)
+
     opt = gpf.optimizers.Scipy()
     opt_logs = opt.minimize(m.training_loss, m.trainable_variables, options=dict(maxiter=1000))
     print_summary(m)
