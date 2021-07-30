@@ -1,4 +1,12 @@
-astrometry/.ipynb_checkpoints/
 *.pyc
 .gitignore~
+requirements.txt~
+
+astrometry/.ipynb_checkpoints/
+astrometry/*.pyc
+astrometry/*.py~
+
+cosmology/*.pyc
+cosmology/*.py~
+
 
