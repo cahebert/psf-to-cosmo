@@ -1,0 +1,4 @@
+astrometry/.ipynb_checkpoints/
+*.pyc
+.gitignore~
+
