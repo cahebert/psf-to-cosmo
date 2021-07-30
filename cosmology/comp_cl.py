@@ -7,12 +7,19 @@ import numpy as np
 import pylab as plt
 import pyccl as ccl
 import copy
-from astropy.io import fits
 import warnings
-import shear_subaru
 import os
 from scipy.stats import binned_statistic
-path = os.path.dirname(shear_subaru.__file__)
+
+def gauss_photo_z(z, z0, sigma_z):
+    """
+    Define gaussian photo-z distribution.
+
+    :z:       array. Redshift range.
+    :z0:      float. Central position of the redshift bin.
+    :sigma_z: float. Width of the redshift distribution.
+    """
+    return 3 * np.exp(-0.5 * (z-z0)**2 / sigma_z**2)
 
 def rebinning_log(ell, Cl, lmin=62.33783875, lmax=6725.85492173, nbins=16):
     """
@@ -31,8 +38,12 @@ def rebinning_log(ell, Cl, lmin=62.33783875, lmax=6725.85492173, nbins=16):
     BINNING = 10 ** np.linspace(np.log10(lmin), np.log10(lmax), nbins)
 
     weight =  ell**2 / (2. * np.pi)
-    sum_wp, B, C = binned_statistic(ell, Cl*weight, statistic='sum', bins=BINNING, range=None)
-    sum_w, B, C = binned_statistic(ell, weight, statistic='sum', bins=BINNING, range=None)
+    sum_wp, B, C = binned_statistic(ell, Cl*weight,
+                                    statistic='sum',
+                                    bins=BINNING, range=None)
+    sum_w, B, C = binned_statistic(ell, weight,
+                                   statistic='sum',
+                                   bins=BINNING, range=None)
     Cl_bin = sum_wp[Filtre] / sum_w[Filtre]
 
     log_B = np.log10(BINNING)
@@ -53,19 +64,11 @@ class comp_shear_cl(object):
 
     def __init__(self, Omega_ch2=0.1, Omega_bh2=0.023, AS=None, S8=None,
                  Omega_nu_h2=1e-3, H0=70, ns=0.97, w0=-1, alpha=0.45,
-                 matter_power_spectrum = 'halofit', A0=0, eta=0,
-                 delta_m = 0., delta_z=[0., 0., 0., 0.],
-                 alpha_psf = 0.057, beta_psf=-1.22,
-                 ell = np.arange(20, 3000), photo_z_method='pf',
-                 log_binning=False):
+                 matter_power_spectrum='halofit', A0=0, eta=0,
+                 delta_m=0., delta_z=[0., 0., 0., 0.],
+                 ell=np.arange(20, 3000)):
 
         self._matter_power_spectrum = matter_power_spectrum
-        self.photo_z_method = photo_z_method
-        self.log_binning=log_binning
-        if self.log_binning:
-            print('log binning pf')
-        else:
-            print('binning paper')
 
         self.update_mbias(delta_m=delta_m)
         self.update_IA(A0=A0, eta=eta)
@@ -75,11 +78,6 @@ class comp_shear_cl(object):
                               H0=H0, ns=ns, w0=w0)
         self.load_photo_z(photo_z_method=self.photo_z_method)
         self.update_redshift_bias(delta_z)
-
-        print('psf leakage used')
-        self.load_psf_leakage()
-        self.update_psf_leakage(alpha_psf=alpha_psf,
-                                beta_psf=beta_psf)
 
         self.ell = ell
 
@@ -165,23 +163,6 @@ class comp_shear_cl(object):
             plt.xlim(0,2.6)
             plt.ylim(-0.1,3.8)
             plt.show()
-
-
-    def load_psf_leakage(self, alpha_psf = 0.057, beta_psf=-1.22):
-
-        psf = np.loadtxt(os.path.join(path, 'data/psf/pk_psfleak_and_res.txt'))
-        mask = [False, True, True, True, True, True, True, False, False]
-        self.Cl_pp = psf[:,1][mask] / (alpha_psf * alpha_psf)
-        self.Cl_pq = psf[:,2][mask] / (alpha_psf * beta_psf)
-        self.Cl_qq = psf[:,3][mask] / (beta_psf * beta_psf)
-
-    def update_psf_leakage(self, alpha_psf = 0.057, beta_psf=-1.22):
-
-        self.alpha_psf = alpha_psf
-        self.beta_psf = beta_psf
-        self.Cl_psf = self.alpha_psf**2 * self.Cl_pp
-        self.Cl_psf += self.alpha_psf * self.beta_psf * self.Cl_pq
-        self.Cl_psf += self.beta_psf**2 *self.Cl_qq
 
     def intrinsic_al(self, redshift, A0=1, eta=1, z0=0.62):
         AI = A0 * ((1+redshift) / (1+z0))**eta
