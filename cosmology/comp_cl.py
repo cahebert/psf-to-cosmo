@@ -8,8 +8,6 @@ import pylab as plt
 import pyccl as ccl
 import copy
 import warnings
-import os
-from scipy.stats import binned_statistic
 
 def gauss_photo_z(z, z0, sigma_z):
     """
@@ -19,46 +17,7 @@ def gauss_photo_z(z, z0, sigma_z):
     :z0:      float. Central position of the redshift bin.
     :sigma_z: float. Width of the redshift distribution.
     """
-    return 3 * np.exp(-0.5 * (z-z0)**2 / sigma_z**2)
-
-def rebinning_log(ell, Cl, lmin=62.33783875, lmax=6725.85492173, nbins=16):
-    """
-    Rebinning of the angular power spectrum in log bin.
-
-    :ell:    array. Multipole l.
-    :Cl:     array. Angular power spectrum.
-    :lmin:   float. Minimum multipole l. (default: lmin=25)
-    :lmax:   float. Maximum multipole l. (default: lmin=2025)
-    :nbins:  int. Number of bin in the new binning. (default: nbins=15)
-    """
-    Filtre = [False, False, False, False, False, 
-              True, True, True, True, True, True,
-              False, False, False, False]
-    
-    BINNING = 10 ** np.linspace(np.log10(lmin), np.log10(lmax), nbins)
-
-    weight =  ell**2 / (2. * np.pi)
-    sum_wp, B, C = binned_statistic(ell, Cl*weight,
-                                    statistic='sum',
-                                    bins=BINNING, range=None)
-    sum_w, B, C = binned_statistic(ell, weight,
-                                   statistic='sum',
-                                   bins=BINNING, range=None)
-    Cl_bin = sum_wp[Filtre] / sum_w[Filtre]
-
-    log_B = np.log10(BINNING)
-    log_B = log_B[:-1] + (log_B[1] - log_B[0])/2.
-    ell_bin = 10**log_B
-    
-    l_errm = ell_bin - BINNING[:-1] 
-    l_errp = BINNING[1:] - ell_bin
-    
-    l_err = [l_errm[Filtre], l_errp[Filtre]]
-
-    return Cl_bin, ell_bin[Filtre], l_err
-
-def return_llplus1(ell, Cl, cst=2.*np.pi):
-    return (ell * (ell + 1) * Cl) / cst
+    return 3 * np.exp(-0.5 * (z - z0) ** 2 / sigma_z ** 2)
 
 class comp_shear_cl(object):
 
@@ -104,11 +63,11 @@ class comp_shear_cl(object):
         self.H0 = H0
         self._h = self.H0 / 100.
 
-        self._Omega_b = self.Omega_bh2 / self._h**2
-        self._Omega_c = self.Omega_ch2 / self._h**2
+        self._Omega_b = self.Omega_bh2 / self._h ** 2
+        self._Omega_c = self.Omega_ch2 / self._h ** 2
         self._Omega_m = self._Omega_b + self._Omega_c
         self.Omega_nu_h2 = Omega_nu_h2
-        self._m_nu = (self.Omega_nu_h2 / self._h**2) * 93.14
+        self._m_nu = (self.Omega_nu_h2 / self._h ** 2) * 93.14
 
         if S8 is None and AS is None:
             raise ValueError('S8 or AS should be given')
@@ -118,7 +77,7 @@ class comp_shear_cl(object):
         if S8 is not None:
             self.AS = None
             self._A_s = None
-            self._sigma8 = S8 * (1./ (self._Omega_m/0.3)**alpha)
+            self._sigma8 = S8 * (1. / (self._Omega_m / 0.3) ** alpha)
         if AS is not None:
             self.AS = AS
             self._A_s = np.exp(self.AS) * 1e-10
@@ -136,7 +95,7 @@ class comp_shear_cl(object):
 
         if photo_z_method not in ['pf', 'hamana']:
             raise ValueError('photo_z_method must be pf or hamana')
-        print('Photo-z: %s is used.'%(photo_z_method))
+        print('Photo-z: %s is used.' % (photo_z_method))
         if photo_z_method == 'pf':
             key = ''
         if photo_z_method == 'hamana':
@@ -146,69 +105,70 @@ class comp_shear_cl(object):
         self.nz = []
 
         for i in range(4):
-            file_bin = np.loadtxt(os.path.join(path, 'data/photo-z/bin%i'%(i+1))+key+'.dat', comments='#')
-            self.redshifts.append(file_bin[:,0])
-            self.nz.append(file_bin[:,1])
+            file_bin = np.loadtxt(os.path.join(path, 'data/photo-z/bin%i' % (i + 1)) + key + '.dat', comments='#')
+            self.redshifts.append(file_bin[:, 0])
+            self.nz.append(file_bin[:, 1])
 
         self.redshifts = np.array(self.redshifts)
         self.nz = np.array(self.nz)
 
         if plot:
             C = ['k', 'b', 'y', 'r']
-            plt.figure(figsize=(12,4))
+            plt.figure(figsize=(12, 4))
             for i in range(4):
                 plt.plot(self.redshifts[i], self.nz[i], C[i], lw=3)
 
-            plt.plot([0,2.6], [0,0], 'k--')
-            plt.xlim(0,2.6)
-            plt.ylim(-0.1,3.8)
+            plt.plot([0, 2.6], [0, 0], 'k--')
+            plt.xlim(0, 2.6)
+            plt.ylim(-0.1, 3.8)
             plt.show()
 
     def intrinsic_al(self, redshift, A0=1, eta=1, z0=0.62):
-        AI = A0 * ((1+redshift) / (1+z0))**eta
+        AI = A0 * ((1 + redshift) / (1 + z0)) ** eta
         return AI
 
-    def multiplicatif_bias(self, Bin_i, Bin_j, delta_m=0.01*100.):
+    def multiplicatif_bias(self, Bin_i, Bin_j, delta_m=0.01 * 100.):
 
         dm = delta_m / 100.
         m_sel = np.array([0.86, 0.99, 0.91, 0.91]) / 100.
         m_R = np.array([0, 0, 1.5, 3.0]) / 100.
 
-        return (1+dm)**2 * (1+m_sel[Bin_i]+m_R[Bin_i]) * (1+m_sel[Bin_j]+m_R[Bin_j])
+        return (1 + dm) ** 2 * (1 + m_sel[Bin_i] + m_R[Bin_i]) * (1 + m_sel[Bin_j] + m_R[Bin_j])
 
     def comp_Cl(self):
         self.wl_bin_shear = []
         nell = len(self.ell)
-        self._Cl = np.zeros(10*nell)
+        self._Cl = np.zeros(10 * nell)
 
-        self.Cl = np.zeros(len(self.ell), dtype={'names':('11', '12', '13', '14',
-                                                          '22', '23', '24',
-                                                          '33', '34',
-                                                          '44'),
-                                                 'formats':('f8', 'f8', 'f8', 'f8',
-                                                            'f8', 'f8','f8',
-                                                            'f8', 'f8',
-                                                            'f8')})
+        self.Cl = np.zeros(len(self.ell), dtype={'names': ('11', '12', '13', '14',
+                                                           '22', '23', '24',
+                                                           '33', '34',
+                                                           '44'),
+                                                 'formats': ('f8', 'f8', 'f8', 'f8',
+                                                             'f8', 'f8', 'f8',
+                                                             'f8', 'f8',
+                                                             'f8')})
         for i in range(4):
             filtre = (self.redshifts_bias[i] > 0)
             # je ne sais plus si c'est important que le redshift de l ai soit le meme que
             # celui de la distribution des galaxies 
-            #AI = self.intrinsic_al(self.redshifts[i][filtre], A0=self.A0, eta=self.eta, z0=0.62)
+            # AI = self.intrinsic_al(self.redshifts[i][filtre], A0=self.A0, eta=self.eta, z0=0.62)
             AI = self.intrinsic_al(self.redshifts[i], A0=self.A0, eta=self.eta, z0=0.62)
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
                 self.wl_bin_shear.append(ccl.WeakLensingTracer(self.cosmology,
-                                                               dndz=(self.redshifts_bias[i][filtre], self.nz[i][filtre]),
+                                                               dndz=(
+                                                               self.redshifts_bias[i][filtre], self.nz[i][filtre]),
                                                                has_shear=True,
                                                                ia_bias=(self.redshifts[i], AI)))
-                                                               #ia_bias=(self.redshifts[i][filtre], AI)))
+                # ia_bias=(self.redshifts[i][filtre], AI)))
         I = 0
         for i in range(4):
             for j in range(4):
-                if j>=i:
-                    key = "%i%i"%((i+1, j+1))
+                if j >= i:
+                    key = "%i%i" % ((i + 1, j + 1))
                     if self.log_binning:
-                        #ell = np.arange(60, 6501).astype(float)
+                        # ell = np.arange(60, 6501).astype(float)
                         # approx permet de gagner un facteur 10 en
                         # temps de calcul sans changer la precision
                         # sur les Cl
@@ -222,14 +182,14 @@ class comp_shear_cl(object):
 
                     m_ij = self.multiplicatif_bias(i, j, delta_m=self.delta_m)
                     cl *= m_ij
-                    self.Cl[key] = return_llplus1(self.ell, cl, cst=2.*np.pi) + self.Cl_psf
-                    self._Cl[I*nell:(I+1)*nell] = self.Cl[key]
+                    self.Cl[key] = return_llplus1(self.ell, cl, cst=2. * np.pi) + self.Cl_psf
+                    self._Cl[I * nell:(I + 1) * nell] = self.Cl[key]
                     I += 1
 
-if __name__ == '__main__':
 
+if __name__ == '__main__':
     csc = comp_shear_cl(Omega_ch2=0.1, Omega_bh2=0.023, AS=4.,
                         Omega_nu_h2=1e-3, H0=70, ns=0.97, w0=-1,
-                        matter_power_spectrum = 'halofit',
+                        matter_power_spectrum='halofit',
                         ell=np.arange(20, 3000))
     csc.comp_Cl()
