@@ -9,6 +9,7 @@ import pyccl as ccl
 import copy
 import warnings
 
+
 def gauss_photo_z(z, z0, sigma_z):
     """
     Define gaussian photo-z distribution.
@@ -18,6 +19,7 @@ def gauss_photo_z(z, z0, sigma_z):
     :sigma_z: float. Width of the redshift distribution.
     """
     return 3 * np.exp(-0.5 * (z - z0) ** 2 / sigma_z ** 2)
+
 
 class comp_shear_cl(object):
 
@@ -35,7 +37,7 @@ class comp_shear_cl(object):
                               AS=AS, S8=S8, alpha=alpha,
                               Omega_nu_h2=Omega_nu_h2,
                               H0=H0, ns=ns, w0=w0)
-        self.load_photo_z(photo_z_method=self.photo_z_method)
+        self.load_photo_z()
         self.update_redshift_bias(delta_z)
 
         self.ell = ell
@@ -91,23 +93,15 @@ class comp_shear_cl(object):
                                        w0=self.w0, m_nu=self._m_nu,
                                        matter_power_spectrum=self._matter_power_spectrum)
 
-    def load_photo_z(self, photo_z_method='pf', plot=False):
+    def load_photo_z(self, z0=[0.3, 0.6, 0.8, 1.1], plot=True):
 
-        if photo_z_method not in ['pf', 'hamana']:
-            raise ValueError('photo_z_method must be pf or hamana')
-        print('Photo-z: %s is used.' % (photo_z_method))
-        if photo_z_method == 'pf':
-            key = ''
-        if photo_z_method == 'hamana':
-            key = '_hamana'
-
+        z = np.linspace(0, 3, 200)
         self.redshifts = []
         self.nz = []
 
-        for i in range(4):
-            file_bin = np.loadtxt(os.path.join(path, 'data/photo-z/bin%i' % (i + 1)) + key + '.dat', comments='#')
-            self.redshifts.append(file_bin[:, 0])
-            self.nz.append(file_bin[:, 1])
+        for i in range(len(z0)):
+            self.redshifts.append(z)
+            self.nz.append(0.02 * gauss_photo_z(z, z0[i], 0.1))
 
         self.redshifts = np.array(self.redshifts)
         self.nz = np.array(self.nz)
@@ -120,7 +114,7 @@ class comp_shear_cl(object):
 
             plt.plot([0, 2.6], [0, 0], 'k--')
             plt.xlim(0, 2.6)
-            plt.ylim(-0.1, 3.8)
+            plt.ylim(-0.1, 0.2)
             plt.show()
 
     def intrinsic_al(self, redshift, A0=1, eta=1, z0=0.62):
@@ -158,7 +152,7 @@ class comp_shear_cl(object):
                 warnings.simplefilter("ignore")
                 self.wl_bin_shear.append(ccl.WeakLensingTracer(self.cosmology,
                                                                dndz=(
-                                                               self.redshifts_bias[i][filtre], self.nz[i][filtre]),
+                                                                   self.redshifts_bias[i][filtre], self.nz[i][filtre]),
                                                                has_shear=True,
                                                                ia_bias=(self.redshifts[i], AI)))
                 # ia_bias=(self.redshifts[i][filtre], AI)))
@@ -167,22 +161,12 @@ class comp_shear_cl(object):
             for j in range(4):
                 if j >= i:
                     key = "%i%i" % ((i + 1, j + 1))
-                    if self.log_binning:
-                        # ell = np.arange(60, 6501).astype(float)
-                        # approx permet de gagner un facteur 10 en
-                        # temps de calcul sans changer la precision
-                        # sur les Cl
-                        ell = np.linspace(306, 1977, 400)
-                        mask_scale = ((ell >= 306) & (ell <= 1977))
-                        ell = ell[mask_scale]
-                        clb = ccl.angular_cl(self.cosmology, self.wl_bin_shear[i], self.wl_bin_shear[j], ell)
-                        cl, ell_bin, ell_err = rebinning_log(ell, clb, lmin=62.33783875, lmax=6725.85492173, nbins=16)
-                    else:
-                        cl = ccl.angular_cl(self.cosmology, self.wl_bin_shear[i], self.wl_bin_shear[j], self.ell)
+
+                    cl = ccl.angular_cl(self.cosmology, self.wl_bin_shear[i], self.wl_bin_shear[j], self.ell)
 
                     m_ij = self.multiplicatif_bias(i, j, delta_m=self.delta_m)
                     cl *= m_ij
-                    self.Cl[key] = return_llplus1(self.ell, cl, cst=2. * np.pi) + self.Cl_psf
+                    self.Cl[key] = cl
                     self._Cl[I * nell:(I + 1) * nell] = self.Cl[key]
                     I += 1
 
