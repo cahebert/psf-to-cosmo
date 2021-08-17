@@ -37,8 +37,8 @@ if __name__ == '__main__':
         af = astrometry_field.AstrometryField(infile)
         
         fig, axs = plt.subplots(1, 2, figsize=(16, 6))
-        af.plot_astrometric_residuals(axs[0], af.xs, af.ys)
-        af.plot_2pcf(axs[1], af.dr, af.xi0, af.xi1)
+        astrometry_field.plot_astrometric_residuals(axs[0], af.xs, af.ys)
+        astrometry_field.plot_2pcf(axs[1], af.dr, af.xi0, af.xi1)
 
         plt.suptitle(f'{os.path.basename(infile)}')
         plt.tight_layout()
