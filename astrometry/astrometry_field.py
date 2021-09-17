@@ -207,6 +207,9 @@ class AstrometryField:
 
         self._bins = bins
 
+        self.gp_x = None
+        self.gp_y = None
+
     def get_astrometric_residuals(self) -> tuple[np.ndarray]:
         """
         Compute the x- and y-components of the astrometric residuals by
@@ -269,6 +272,44 @@ class AstrometryField:
                                 train_size=size,
                                 random_state=42)
 
+    def initialize_gp(self, xs_train, ys_train):
+        kernel = "15**2 * AnisotropicVonKarman(invLam=np.array([[1./3000.**2,0],[0,1./3000.**2]]))"
+        gp_x = treegp.GPInterpolation(kernel=kernel,
+                                      optimizer='anisotropic', 
+                                      normalize=False,
+                                      white_noise=0.,
+                                      p0=[3000., 0.,0.],
+                                      n_neighbors=4,
+                                      average_fits=None,
+                                      nbins=20, 
+                                      min_sep=None,
+                                      max_sep=None)
+        gp_y = treegp.GPInterpolation(kernel=kernel,
+                                      optimizer='anisotropic', 
+                                      normalize=False,
+                                      white_noise=0.,
+                                      p0=[3000., 0.,0.],
+                                      n_neighbors=4,
+                                      average_fits=None,
+                                      nbins=20, 
+                                      min_sep=None,
+                                      max_sep=None)
+
+        gp_x.initialize(xs_train, ys_train[:, 0], y_err=None)
+        gp_y.initialize(xs_train, ys_train[:, 1], y_err=None)
+        
+        self.gp_x = gp_x
+        self.gp_y = gp_y
+
+    def predict(self, xs_test):
+        ys_predict_x, ys_cov_x = self.gp_x.predict(xs_test, return_cov=True)
+        ys_predict_y, ys_cov_y = self.gp_y.predict(xs_test, return_cov=True)
+        ys_pred = np.asarray([ys_predict_x, ys_predict_y]).T
+        ys_cov = np.asarray([ys_cov_x, ys_cov_y]).T
+        
+        return ys_pred, ys_cov
+
+
 
 if __name__ == '__main__':
     # Main function for testing and debugging purposes.
@@ -294,34 +335,9 @@ if __name__ == '__main__':
     # astrometric residual field. These can be mixed if we decide it's
     # important at some later point.
 
-    kernel = "15**2 * AnisotropicVonKarman(invLam=np.array([[1./3000.**2,0],[0,1./3000.**2]]))"
-    gp_x = treegp.GPInterpolation(kernel=kernel,
-                                  optimizer='anisotropic', 
-                                  normalize=False,
-                                  white_noise=0.,
-                                  p0=[3000., 0.,0.],
-                                  n_neighbors=4,
-                                  average_fits=None,
-                                  nbins=20, 
-                                  min_sep=None,
-                                  max_sep=None)
-    gp_y = treegp.GPInterpolation(kernel=kernel,
-                                  optimizer='anisotropic', 
-                                  normalize=False,
-                                  white_noise=0.,
-                                  p0=[3000., 0.,0.],
-                                  n_neighbors=4,
-                                  average_fits=None,
-                                  nbins=20, 
-                                  min_sep=None,
-                                  max_sep=None)
+    af.initialize_gp(xs_train, ys_train)
 
-    gp_x.initialize(xs_train, ys_train[:, 0], y_err=None)
-    gp_y.initialize(xs_train, ys_train[:, 1], y_err=None)
-
-    ys_predict_x, ys_cov_x = gp_x.predict(xs_test, return_cov=True)
-    ys_predict_y, ys_cov_y = gp_y.predict(xs_test, return_cov=True)
-    ys_pred = np.asarray([ys_predict_x, ys_predict_y]).T
+    ys_pred, ys_cov = af.predict(xs_test)
 
     fig, axs = plt.subplots(2, 2, figsize=(16, 8))
 
