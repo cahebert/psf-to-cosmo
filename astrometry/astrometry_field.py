@@ -7,9 +7,9 @@ import numpy as np
 from sklearn.model_selection import train_test_split
 import matplotlib
 import matplotlib.pyplot as plt
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 
-# import treegp
-
+import treegp
 
 def load_data(infile: str) -> dict:
     """
@@ -28,7 +28,6 @@ def load_data(infile: str) -> dict:
     with open(infile, 'rb') as data:
         ddict = pickle.load(data)
     return ddict
-
 
 def compute_2pcf(xs: np.ndarray,
                  ys: np.ndarray,
@@ -161,8 +160,8 @@ def plot_astrometric_residuals(ax: matplotlib.axes.Axes,
                  coordinates='data', labelpos='N',
                  color='darkred', labelcolor='darkred')
 
-    ax.set_xlabel('RA [degrees]', fontsize=12)
-    ax.set_ylabel('Dec [degrees]', fontsize=12)
+    ax.set_xlabel('RA [degrees]')
+    ax.set_ylabel('Dec [degrees]')
 
     ax.set_xlim(-1.95, 1.95)
     ax.set_ylim(-1.9, 2.0)
@@ -238,8 +237,8 @@ class AstrometryField:
         res_x = np.asarray([(x-25) * self._pscale for x in self.ddict['x']])
         res_y = np.asarray([(y-25) * self._pscale for y in self.ddict['y']])
 
-        # subtract 1st order polynomial, ie mean:
-        # according the PF this should be a third order polynomial! to-do.
+        # subtract 1st order polynomial (i.e., mean):
+        # according to P-F this should be a third order polynomial! to-do.
         res_x = np.asarray([x-np.mean(res_x) for x in res_x])
         res_y = np.asarray([y-np.mean(res_y) for y in res_y])
 
@@ -285,20 +284,77 @@ if __name__ == '__main__':
                         required=False,
                         default=100,
                         help='Size of training sample [int]')
-    parser.add_argument('--inducing',
-                        type=int,
-                        required=False,
-                        default=100,
-                        help='Number of inducing points [int]')
     args = parser.parse_args()
 
     af = AstrometryField(args.infile)
 
     xs_train, xs_test, ys_train, ys_test = af.get_train_test(size=args.size)
 
-    fig, axs = plt.subplots(1, 2, figsize=(16, 6))
-    plot_astrometric_residuals(axs[0], af.xs, af.ys)
-    # plot_2pcf(axs[1], af.dr, af.xi0, af.xi1)
+    # We'll use independent GPs to model the x- and y-components of the
+    # astrometric residual field. These can be mixed if we decide it's
+    # important at some later point.
+
+    kernel = "15**2 * AnisotropicVonKarman(invLam=np.array([[1./3000.**2,0],[0,1./3000.**2]]))"
+    gp_x = treegp.GPInterpolation(kernel=kernel,
+                                  optimizer='anisotropic', 
+                                  normalize=False,
+                                  white_noise=0.,
+                                  p0=[3000., 0.,0.],
+                                  n_neighbors=4,
+                                  average_fits=None,
+                                  nbins=20, 
+                                  min_sep=None,
+                                  max_sep=None)
+    gp_y = treegp.GPInterpolation(kernel=kernel,
+                                  optimizer='anisotropic', 
+                                  normalize=False,
+                                  white_noise=0.,
+                                  p0=[3000., 0.,0.],
+                                  n_neighbors=4,
+                                  average_fits=None,
+                                  nbins=20, 
+                                  min_sep=None,
+                                  max_sep=None)
+
+    gp_x.initialize(xs_train, ys_train[:, 0], y_err=None)
+    gp_y.initialize(xs_train, ys_train[:, 1], y_err=None)
+
+    ys_predict_x, ys_cov_x = gp_x.predict(xs_test, return_cov=True)
+    ys_predict_y, ys_cov_y = gp_y.predict(xs_test, return_cov=True)
+    ys_pred = np.asarray([ys_predict_x, ys_predict_y]).T
+
+    fig, axs = plt.subplots(2, 2, figsize=(16, 8))
+
+    plot_astrometric_residuals(axs[0,0], xs_test, ys_test)
+    plot_astrometric_residuals(axs[0,1], xs_test, ys_pred)
+
+    sc = axs[1,0].scatter(xs_test[:,0], xs_test[:,1], c=(ys_test-ys_pred)[:,0], cmap='seismic', s=1, vmin=-0.05, vmax=0.05)
+    axs[1,0].set_xlabel('RA [degrees]', fontsize=12);
+    axs[1,0].set_ylabel('Dec [degrees]', fontsize=12)
+    axs[1,0].set_xlim(-1.95, 1.95)
+    axs[1,0].set_ylim(-1.9, 2.0)
+    axs[1,0].set_aspect('equal')
+    divider = make_axes_locatable(axs[1,0])
+    cax = divider.append_axes('right', size = '5%', pad=0)
+    plt.colorbar(sc, cax=cax)
+
+    sc = axs[1,1].scatter(xs_test[:,0], xs_test[:,1], c=(ys_test-ys_pred)[:,1], cmap='seismic', s=1, vmin=-0.05, vmax=0.05)
+    axs[1,1].set_xlabel('RA [degrees]', fontsize=12);
+    axs[1,1].set_ylabel('Dec [degrees]', fontsize=12)
+    axs[1,1].set_xlim(-1.95, 1.95)
+    axs[1,1].set_ylim(-1.9, 2.0)
+    axs[1,1].set_aspect('equal')
+    divider = make_axes_locatable(axs[1,1])
+    cax = divider.append_axes('right', size = '5%', pad=0)
+    plt.colorbar(sc, cax=cax)
+
+    # cb = fig.colorbar(sc, ax=axs[1,:2], location='bottom', shrink=0.6)
+
+    axs[0,0].set_title('Expected')
+    axs[0,1].set_title('Predicted')
+
+    axs[1,0].set_title('Expected - Predicted (x)')
+    axs[1,1].set_title('Expected - Predicted (y)')
 
     plt.tight_layout()
     plt.show()
